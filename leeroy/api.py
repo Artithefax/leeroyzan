@@ -7,7 +7,7 @@ import importlib
 import sys
 
 MODULES = ["constants", "i18n", "config", "wow", "files", "github", "curseforge", "sharing", "selfupdate", "lua",
-           "sessions", "linkaddon", "reports", "linkdata", "wowhead", "questdb", "auction"]
+           "sessions", "linkaddon", "reports", "linkdata", "wowhead", "questdb", "auction", "talents", "images", "guides"]
 UI_MODULES = ["ui.base", "ui.theme", "ui.dialogs", "ui.app", "main"]
 
 

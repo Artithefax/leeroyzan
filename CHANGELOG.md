@@ -3,6 +3,19 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.1.0
+
+### New: Builds – talent planner and guides
+- **Talent planner with the original trees from Wowhead.** The new *Builds* page shows the three talent trees of a class the way Wowhead's talent calculator does – icons, backgrounds, arrows and rank counters – for WoW Forever (with its changed talents), Classic, Burning Crusade and Wrath. Left click spends a point, right click takes it back, Shift does all ranks at once; the rules of the game (points per row, required talents, point limit) are checked.
+- **Builds from Wowhead and back.** Paste a talent calculator link (`…/talent-calc/shaman/…`) and the build opens in the planner, including the order in which the points are spent. *Copy link* and *Open on Wowhead* produce the same link again.
+- **Skill order.** Next to the trees you see at which level each point is spent – handy for leveling builds.
+- **Saved builds.** Give a build a name and pick it again later; the last build per game version is remembered.
+- **Guides, saved for offline reading.** Paste the link of a Wowhead guide and Leeroyzan stores it in the data folder and shows it as text with headings, lists, tables and links to spells, items and quests. Talent builds embedded in a guide open in the planner with one click. *Refresh* fetches the current version.
+- Talent data, icons and backgrounds are downloaded from Wowhead once and kept in the data folder (`wowhead`), so the planner also works offline afterwards.
+
+### Wowhead
+- The Wowhead search has a *WoW Forever* database now.
+
 ## 2.0.1
 
 ### Fixed

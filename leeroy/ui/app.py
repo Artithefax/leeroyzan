@@ -27,6 +27,7 @@ from .diagnose import DiagnosePage
 from .characters import CharactersPage
 from .quests import QuestsPage
 from .auction import AuctionPage
+from .builds import BuildsPage
 from .wowhead import WowheadPage
 from .settings import SettingsPage
 from .common import CommonMixin
@@ -35,7 +36,7 @@ from .install import InstallMixin
 from .selfupdate import SelfUpdateMixin
 
 
-class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, UpdatesPage, SharePage, SetsPage, SessionsPage, LinkDataMixin, DiagnosePage, CharactersPage, QuestsPage, AuctionPage, WowheadPage, SettingsPage, CommonMixin, DownloadsMixin, InstallMixin, SelfUpdateMixin, BaseTk):
+class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, UpdatesPage, SharePage, SetsPage, SessionsPage, LinkDataMixin, DiagnosePage, CharactersPage, QuestsPage, AuctionPage, BuildsPage, WowheadPage, SettingsPage, CommonMixin, DownloadsMixin, InstallMixin, SelfUpdateMixin, BaseTk):
     COLUMNS = ("status", "name", "title", "version", "interface", "source", "update")
     current_page = "addons"
     UPDATE_MODES = {"auto": "Automatisch installieren", "ask": "Nur nachfragen", "off": "Aus"}

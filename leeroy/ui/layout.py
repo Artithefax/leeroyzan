@@ -18,10 +18,10 @@ class LayoutMixin:
 
     # ----- Aufbau ---------------------------------------------------------- #
     PAGES = [("addons", "Meine Addons"), ("discover", "Entdecken"), ("updates", "Updates"),
-             ("sessions", "Leeroylink"), ("characters", "Charaktere"), ("quests", "Quests"), ("auction", "Auktionshaus"), ("wowhead", "Wowhead"), ("diagnose", "Diagnose"),
+             ("sessions", "Leeroylink"), ("characters", "Charaktere"), ("quests", "Quests"), ("auction", "Auktionshaus"), ("builds", "Builds"), ("wowhead", "Wowhead"), ("diagnose", "Diagnose"),
              ("share", "Teilen"), ("sets", "Sets & Backups"), ("settings", "Einstellungen")]
     NAV_GROUPS = [("Addons", ("addons", "discover", "updates")),
-                  ("Im Spiel", ("sessions", "characters", "quests", "auction", "wowhead")),
+                  ("Im Spiel", ("sessions", "characters", "quests", "auction", "builds", "wowhead")),
                   ("Werkzeuge", ("diagnose", "share", "sets", "settings"))]
     TREE_SHOWN = ("status", "name", "version", "source", "update")
 
@@ -187,6 +187,7 @@ class LayoutMixin:
         self._page_characters()
         self._page_quests()
         self._page_auction()
+        self._page_builds()
         self._page_wowhead()
         self._page_diagnose()
         self._page_share()

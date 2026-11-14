@@ -15,8 +15,8 @@ from .reports import QUALITY_COLORS
 # --------------------------------------------------------------------------- #
 # Wowhead: Suche mit Vorschau
 # --------------------------------------------------------------------------- #
-# Wowhead hat getrennte Datenbanken je Spielausgabe – WoW Forever passt am besten zu Classic.
-WOWHEAD_EDITIONS = [("classic", "Classic (Era / Anniversary)"), ("tbc", "Burning Crusade Classic"),
+# Wowhead hat getrennte Datenbanken je Spielausgabe.
+WOWHEAD_EDITIONS = [("forever", "WoW Forever"), ("classic", "Classic (Era / Anniversary)"), ("tbc", "Burning Crusade Classic"),
                     ("wotlk", "Wrath of the Lich King Classic"), ("cata", "Cataclysm Classic"),
                     ("mop-classic", "Mists of Pandaria Classic"), ("", "Retail (aktuelles WoW)")]
 # Typnummern aus der Wowhead-Suche → Adressteil und Anzeigename
@@ -46,6 +46,20 @@ def _wowhead_json(url: str):
     req = urllib.request.Request(url, headers={"User-Agent": WOWHEAD_UA, "Accept": "application/json, text/javascript, */*"})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def wowhead_text(url: str, timeout: int = 20) -> str:
+    """Eine Seite oder Datendatei von Wowhead als Text (Guides, Talentdaten)."""
+    req = urllib.request.Request(url, headers={"User-Agent": WOWHEAD_UA, "Accept": "text/html, application/javascript, */*",
+                                               "Accept-Language": "de,en;q=0.8"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def wowhead_bytes(url: str, timeout: int = 20) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": WOWHEAD_UA, "Accept": "image/*, */*"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
 
 
 def wowhead_search(query: str, edition: str) -> list[dict]:
