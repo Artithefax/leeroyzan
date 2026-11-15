@@ -10,13 +10,20 @@ from ..config import log, save_config
 from ..reports import QUALITY_COLORS, plural
 from ..wowhead import (
     WOWHEAD_EDITIONS,
+    WOWHEAD_LISTS,
     WOWHEAD_TOOLTIP_TYPES,
+    WOWHEAD_TYPES,
+    fetch_wowhead_page,
+    wowhead_list_more,
+    wowhead_list_rows,
+    wowhead_url,
     wowhead_base,
     wowhead_search,
     wowhead_search_url,
     wowhead_tooltip,
 )
 from .dialogs import Placeholder
+from .theme import THEME
 from .discordshare import DISCORD_BTN
 
 
@@ -30,6 +37,7 @@ class WowheadPage:
         self.wh_seq = 0
         self.wh_after = None
         self.wh_tips: dict[tuple, dict] = {}
+        self.wh_pages: dict[tuple, dict] = {}      # (Ausgabe, Art, ID) -> Schnellinfo und Listen der Wowhead-Seite
         self.wh_var = tk.StringVar()
         self.wh_info_var = tk.StringVar(value=tr("Tippe einen Namen ein – Gegenstand, NPC, Quest, Zauber, Zone …"))
         ed = self.cfg.get("wowhead_edition", "classic")
@@ -80,6 +88,12 @@ class WowheadPage:
         tf, self.wh_text = self._text(box, height=8)
         tf.pack(fill="both", expand=True)
         self._tag_text(self.wh_text)
+        self.wh_links: list[dict] = []
+        self.wh_text.tag_configure("whlink", underline=False)
+        self.wh_text.tag_bind("whlink", "<Button-1>", self._wh_link_click)
+        self.wh_text.tag_bind("whlink", "<Enter>", lambda e: self.wh_text.configure(cursor="hand2"))
+        self.wh_text.tag_bind("whlink", "<Leave>", lambda e: self.wh_text.configure(cursor=""))
+        self.wh_text.tag_configure("head", foreground=THEME["gold"], font=self.fonts["bold"], spacing1=4, spacing3=2)
         btns = ttk.Frame(box, style="Panel.TFrame")
         btns.pack(fill="x", pady=(10, 0))
         self.wh_open_btn = ttk.Button(btns, text=tr("Auf Wowhead öffnen ↗"), style="Primary.TButton",
@@ -157,6 +171,9 @@ class WowheadPage:
         except (ValueError, IndexError):
             return None
 
+    def _wh_key_of(self, r) -> tuple:
+        return (r.get("edition", self._wh_edition_key()), r["kind"], r["id"])
+
     def _wh_show(self):
         r = self._wh_selected()
         state = "normal" if r else "disabled"
@@ -166,20 +183,39 @@ class WowheadPage:
         self.wh_fav_btn.configure(state=state, text=tr("★ Favorit entfernen") if r and self._wh_is_fav(r) else tr("☆ Favorit"))
         if not r:
             return
-        key = (r.get("edition", self._wh_edition_key()), r["kind"], r["id"])
-        self._wh_render(r, self.wh_tips.get(key), loading=key not in self.wh_tips)
-        if key in self.wh_tips or r["kind"] not in WOWHEAD_TOOLTIP_TYPES:
-            return
+        key = self._wh_key_of(r)
+        self._wh_render(r)
+        if key not in self.wh_tips and r["kind"] in WOWHEAD_TOOLTIP_TYPES:
+            def tip_done(tip, err):
+                if err:
+                    log.info("Wowhead-Tooltip %s: %s", key, err)
+                self.wh_tips[key] = tip or {}
+                if self._wh_selected() is r:
+                    self._wh_render(r)
+            self.run_quiet(lambda: wowhead_tooltip(r["kind"], r["id"], key[0]), tip_done)
+        if key not in self.wh_pages:
+            self.wh_pages[key] = {"loading": True}
 
-        def done(tip, err):
-            if err:
-                log.info("Wowhead-Tooltip %s: %s", key, err)
-            self.wh_tips[key] = tip or {}
-            if self._wh_selected() is r:
-                self._wh_render(r, self.wh_tips[key])
-        self.run_quiet(lambda: wowhead_tooltip(r["kind"], r["id"], key[0]), done)
+            def page_done(page, err):
+                if err:
+                    log.info("Wowhead-Seite %s: %s", key, err)
+                self.wh_pages[key] = page or {"failed": True}
+                if self._wh_selected() is r:
+                    self._wh_render(r)
+            self.run_quiet(lambda: fetch_wowhead_page(r["kind"], r["id"], key[0]), page_done)
 
-    def _wh_render(self, r, tip, loading=False):
+    def _wh_zone_name(self):
+        """Zonennamen aus QuestieDB (wenn geladen) und aus dem Spiel (Leeroylink) – sonst bleibt die Zone weg."""
+        learned = self.link_state.get("zoneNames", {})
+        db = getattr(self, "qdb", None)
+        if db is not None:
+            return lambda z: db.zone_name(z, learned)
+        return lambda z: learned.get(z, "")
+
+    def _wh_render(self, r):
+        key = self._wh_key_of(r)
+        tip = self.wh_tips.get(key)
+        page = self.wh_pages.get(key) or {}
         q = (tip or {}).get("quality")
         q = r["quality"] if q is None else q
         parts = [((tip or {}).get("name") or r["name"], f"q{q}" if q is not None else "title"), ("\n", ""),
@@ -189,13 +225,55 @@ class WowheadPage:
             if lines and lines[0].strip() == ((tip or {}).get("name") or r["name"]).strip():
                 lines = lines[1:]               # der Name steht schon oben
             parts.append(("\n".join(lines).strip() + "\n", ""))
-        elif loading and r["kind"] in WOWHEAD_TOOLTIP_TYPES:
+        elif tip is None and r["kind"] in WOWHEAD_TOOLTIP_TYPES:
             parts.append((tr("Lade Kurzinfo …") + "\n", "dim"))
-        else:
+        elif not page.get("facts") and not page.get("lists"):
             parts.append((tr("Keine Kurzinfo verfügbar – die ganze Seite gibt es auf Wowhead.") + "\n", "dim"))
+        if page.get("facts"):
+            parts.append(("\n" + tr("Schnellinfo") + "\n", "head"))
+            parts += [("• " + f + "\n", "") for f in page["facts"]]
+        zone = self._wh_zone_name()
+        kinds = {k: name for k, name in WOWHEAD_TYPES.values()}
+        self.wh_links = []
+        for lst in page.get("lists", []):
+            parts.append(("\n" + tr(WOWHEAD_LISTS[lst["id"]]) + (f" ({lst['total']})" if lst["total"] > 1 else "") + "\n", "head"))
+            for row in wowhead_list_rows(lst, zone):
+                parts.append(("• ", ""))
+                tags: tuple = (f"q{row['quality']}" if row["quality"] is not None else "hl",)
+                if row["kind"] in kinds and row["id"] is not None:
+                    tags += ("whlink", f"whlink:{len(self.wh_links)}")
+                    self.wh_links.append({"kind": row["kind"], "kind_name": kinds[row["kind"]], "id": row["id"], "name": row["name"],
+                                          "quality": row["quality"], "edition": key[0], "url": wowhead_url(key[0], row["kind"], row["id"])})
+                parts.append((row["name"], tags))
+                parts.append(((f"  {row['info']}" if row["info"] else "") + "\n", "dim"))
+            more = wowhead_list_more(lst)
+            if more:
+                parts.append((more + "\n", "dim"))
+        if page.get("loading"):
+            parts.append(("\n" + tr("Lade weitere Infos von Wowhead …") + "\n", "dim"))
         parts.append(("\n" + r["url"], "mono"))
+        y = self.wh_text.yview()[0]
         self._set_text(self.wh_text, parts=parts)
         self.wh_text.configure(state="disabled")
+        if not page.get("loading"):
+            self.wh_text.yview_moveto(y)
+
+    def _wh_link_click(self, event):
+        txt = self.wh_text
+        tags = txt.tag_names(txt.index(f"@{event.x},{event.y}"))
+        idx = next((int(t.split(":", 1)[1]) for t in tags if t.startswith("whlink:")), None)
+        if idx is not None and idx < len(getattr(self, "wh_links", [])):
+            self.wh_open_entry(self.wh_links[idx])
+
+    def wh_open_entry(self, entry: dict):
+        """Ein Eintrag aus der Vorschau (z. B. ein NPC unter „Gedroppt von“) – oben in die Trefferliste und anzeigen."""
+        if self.wh_mode != "results":
+            self.wh_mode = "results"
+        k = self._wh_key(entry)
+        self.wh_results = [entry] + [r for r in self.wh_results if self._wh_key(r) != k]
+        self._wh_fill(self.wh_results)
+        self.wh_tree.selection_set("0")
+        self.wh_tree.see("0")
 
     def wh_open(self):
         r = self._wh_selected()

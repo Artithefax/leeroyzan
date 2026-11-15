@@ -3,6 +3,14 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## Unreleased
+
+### Wowhead: much more in the preview
+- Besides the tooltip, the preview now shows what the Wowhead page knows: **quick facts** (price, level, classification, start and end of a quest, patch …) and **where it comes from or what it is for** – *dropped by* (with drop chance, level and zone), *sold by* (with price), *reward from*, *contained in*, *reagent for*, *objective of*, an NPC's *loot* and *abilities*, what a node *yields*, and more. Up to five entries per list, sorted by drop chance; chances from very few observations are marked and come last.
+- **Click an entry** (a vendor, a mob, a quest …) to look it up – it is put at the top of the results.
+- Zone names come from QuestieDB and your characters (Leeroylink) when available.
+- *Discord ↗* on the Wowhead page now also sends the quick facts and the top sources.
+
 ## 2.2.1
 
 ### New: share on Discord

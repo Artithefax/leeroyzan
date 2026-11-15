@@ -126,9 +126,9 @@ class DiscordSharePage:
         r = self._wh_selected()
         if not r:
             return
-        key = (r.get("edition", self._wh_edition_key()), r["kind"], r["id"])
-        tip = self.wh_tips.get(key)
-        self.discord_share(f"{tr(r['kind_name'])} „{r['name']}“", lambda c, a, o: share_wowhead_messages(r, tip, c, a))
+        key = self._wh_key_of(r)
+        tip, page = self.wh_tips.get(key), self.wh_pages.get(key)
+        self.discord_share(f"{tr(r['kind_name'])} „{r['name']}“", lambda c, a, o: share_wowhead_messages(r, tip, c, a, page))
 
     def share_quest_discord(self):
         qid = getattr(self, "qdb_current", None)

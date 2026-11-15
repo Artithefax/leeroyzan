@@ -144,9 +144,12 @@ def share_guide_messages(guide: dict, intro: str = "", comment: str = "", author
 
 
 # ----- Wowhead-Eintrag ------------------------------------------------------------------ #
-def share_wowhead_messages(row: dict, tip: dict | None = None, comment: str = "", author: str = "") -> list[dict]:
-    """Ein Treffer der Wowhead-Suche (Gegenstand, Zauber, NPC, Quest …) mit seiner Kurzinfo."""
+def share_wowhead_messages(row: dict, tip: dict | None = None, comment: str = "", author: str = "",
+                           page: dict | None = None) -> list[dict]:
+    """Ein Treffer der Wowhead-Suche (Gegenstand, Zauber, NPC, Quest …) mit seiner Kurzinfo –
+    und, wenn die Seite schon geladen ist, mit Schnellinfo und den wichtigsten Quellen (je drei Zeilen)."""
     from .images import icon_url
+    from .wowhead import WOWHEAD_LISTS, wowhead_list_more, wowhead_list_rows
     tip = tip or {}
     name = tip.get("name") or row.get("name") or "?"
     lines = (tip.get("text") or "").splitlines()
@@ -158,7 +161,15 @@ def share_wowhead_messages(row: dict, tip: dict | None = None, comment: str = ""
     if color == 0xF3F0E8:                       # „gewöhnlich“ ist fast weiß – dann lieber Gold
         color = DISCORD_COLOR
     icon = icon_url(tip["icon"], "large") if tip.get("icon") else ""
-    emb = share_embed(name, row.get("url") or "", cut("\n".join(lines), SHARE_DESC), (), color, icon,
+    fields = []
+    page = page or {}
+    if page.get("facts"):
+        fields.append((tr("Schnellinfo"), "\n".join(_md(f) for f in page["facts"][:8]), False))
+    for lst in (page.get("lists") or [])[:4]:
+        rows = [f"{_md(r['name'])}" + (f" – {r['info']}" if r["info"] else "") for r in wowhead_list_rows(lst, None, 3)]
+        more = wowhead_list_more(lst, 3)
+        fields.append((tr(WOWHEAD_LISTS[lst["id"]]), "\n".join(rows + ([more] if more else [])), False))
+    emb = share_embed(name, row.get("url") or "", cut("\n".join(lines), SHARE_DESC), fields, color, icon,
                       f"{tr(row.get('kind_name') or '')} · ID {row.get('id')}".strip(" ·"))
     return [share_message(emb, comment, author)]
 
