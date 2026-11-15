@@ -17,6 +17,7 @@ from ..wowhead import (
     wowhead_tooltip,
 )
 from .dialogs import Placeholder
+from .discordshare import DISCORD_BTN
 
 
 class WowheadPage:
@@ -86,6 +87,8 @@ class WowheadPage:
         self.wh_open_btn.pack(side="left")
         self.wh_copy_btn = ttk.Button(btns, text=tr("Link kopieren"), command=self.wh_copy, state="disabled")
         self.wh_copy_btn.pack(side="left", padx=(6, 0))
+        self.wh_discord_btn = ttk.Button(btns, text=DISCORD_BTN, command=self.share_wowhead_discord, state="disabled")
+        self.wh_discord_btn.pack(side="left", padx=(6, 0))
         self.wh_fav_btn = ttk.Button(btns, text=tr("☆ Favorit"), command=self.wh_toggle_fav, state="disabled")
         self.wh_fav_btn.pack(side="right")
         self._wh_mode_buttons()
@@ -159,6 +162,7 @@ class WowheadPage:
         state = "normal" if r else "disabled"
         self.wh_open_btn.configure(state=state)
         self.wh_copy_btn.configure(state=state)
+        self.wh_discord_btn.configure(state=state)
         self.wh_fav_btn.configure(state=state, text=tr("★ Favorit entfernen") if r and self._wh_is_fav(r) else tr("☆ Favorit"))
         if not r:
             return

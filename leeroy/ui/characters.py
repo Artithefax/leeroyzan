@@ -11,6 +11,7 @@ from ..sessions import load_sessions
 from ..reports import CLASS_NAMES, fmt_day, fmt_dur, fmt_int, fmt_money, plural, skill_group_by_name
 from ..linkdata import char_items, find_items, item_name, item_quality, shopping_list
 from .dialogs import Placeholder
+from .discordshare import DISCORD_BTN
 
 
 class CharactersPage:
@@ -36,6 +37,10 @@ class CharactersPage:
         tf, self.chars_text = self._text(box, height=8)
         tf.pack(fill="both", expand=True)
         self._tag_text(self.chars_text)
+        cbtns = ttk.Frame(box, style="Panel.TFrame")
+        cbtns.pack(fill="x", pady=(8, 0))
+        self.chars_discord_btn = ttk.Button(cbtns, text=DISCORD_BTN, command=self.share_char_discord, state="disabled")
+        self.chars_discord_btn.pack(side="right")
 
         low = ttk.Frame(page)
         low.pack(fill="both", expand=True, pady=(12, 0))
@@ -155,6 +160,7 @@ class CharactersPage:
                     add(f" ×{fmt_int(n)}", "dim")
                 add("\n")
         self._set_text(self.chars_text, parts=P)
+        self.chars_discord_btn.configure(state="normal" if c else "disabled")
 
     def _shop_fill(self, level: int = 0, keep: bool = False):
         """Auswahl der Einkaufsliste: Charakter -> Beruf -> Rezept (mit Filter)."""

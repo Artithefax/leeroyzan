@@ -671,6 +671,7 @@ class SessionsPage:
                         variable=self.presence_char_var, style="Wrap.TCheckbutton", command=self._save_presence).pack(anchor="w", pady=(6, 0))
         ttk.Label(box, textvariable=self.presence_state_var, style="Panel.TLabel", foreground=THEME["text_faint2"],
                   wraplength=280, justify="left").pack(anchor="w", pady=(6, 0))
+        self._w_discord_share(box)
         return box
 
     # --- Discord: Anzeige im Profil (Rich Presence) ---------------------------------------------- #

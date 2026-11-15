@@ -23,6 +23,7 @@ from ..sharing import (
     list_to_file_text,
     parse_list_text,
 )
+from .discordshare import DISCORD_BTN
 from .theme import THEME
 from .dialogs import SET_ALL_OFF, SET_ALL_ON
 
@@ -77,6 +78,7 @@ class SharePage:
         brow.pack(fill="x", pady=(8, 0))
         ttk.Button(brow, text=tr("Code kopieren"), style="Primary.TButton", command=self.copy_share_code).pack(side="left")
         ttk.Button(brow, text=tr("Lesbare Liste kopieren"), command=self.copy_share_readable).pack(side="left", padx=(6, 0))
+        ttk.Button(brow, text=DISCORD_BTN, command=lambda: self.share_addons_discord()).pack(side="left", padx=(6, 0))
         prow = ttk.Frame(box, style="Panel.TFrame")
         prow.pack(fill="x", pady=(6, 0))
         ttk.Button(prow, text=tr("Als .lzlist speichern"), command=self.save_share_file).pack(side="left")

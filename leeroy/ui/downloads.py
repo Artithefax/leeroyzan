@@ -157,7 +157,8 @@ class DownloadsMixin:
             items.append(None)
         items += [(tr("Details"), lambda: self.show_details(main)),
                   (tr("Aktivieren / Deaktivieren"), lambda: self.toggle_selected(sel)),
-                  (tr("Ordner öffnen"), lambda: self.open_folder(sel))]
+                  (tr("Ordner öffnen"), lambda: self.open_folder(sel)),
+                  (tr("An Discord teilen …"), lambda: self.share_addons_discord(sel))]
         menu = self._menu(self.tree, items)
         try:
             menu.tk_popup(event.x_root, event.y_root)
