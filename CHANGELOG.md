@@ -3,6 +3,18 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+
+## 2.2.3
+
+### Leeroylink 0.8.0: a new look in the game
+- **The window looks like the game's own.** Leeroylink now uses Blizzard's window templates as WoW Forever draws them: portrait frame with the Leeroylink emblem, tabs at the bottom, quest-log parchment for the pages, the game's list style on the left. Text is set in dark ink on the parchment.
+- **Tabs instead of one long list:** *Overview*, *Session* (session log, loot log, screenshots), *Quests* (quest companion, checklists, notes), *Characters* (alts, recipes, AH prices), *Addons* (updates, error log, load status, profiles, wishlist, resources) and *Settings*. The overview shows what every part knows right now, grouped like the tabs.
+- **The quest companion** has the same look: portrait frame, parchment, buttons in the button bar.
+- **Banners:** a golden bar at the top of the screen with icon and sound – for news from Leeroyzan after login (updates, changelogs), the first error of an addon in a session, a completed quest chain and every boss kill. Click a banner to open the matching page. *Settings → Display* switches banners and sounds off; `/lz banner` shows a test banner.
+- **Own minimap button** with the Leeroylink emblem; window sounds like the game's (open, close, tabs, checkboxes).
+- The window remembers its position. `/lz ui` tells which Blizzard templates were used – if a future client lacks one, Leeroylink falls back to the classic dialog look.
+- After updating, restart the game once (not just `/reload`): WoW only finds the new emblem image after a restart.
+
 ## 2.2.2
 
 ### Wowhead: much more in the preview
