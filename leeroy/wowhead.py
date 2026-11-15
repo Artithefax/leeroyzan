@@ -108,4 +108,5 @@ def wowhead_tooltip(kind: str, wid, edition: str) -> dict:
         return {}
     q = data.get("quality")
     return {"name": html.unescape(str(data.get("name") or "")), "text": tooltip_text(str(data.get("tooltip") or "")),
+            "icon": str(data.get("icon") or ""),
             "quality": q if isinstance(q, int) and 0 <= q < len(QUALITY_COLORS) else None}

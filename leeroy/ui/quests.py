@@ -22,6 +22,7 @@ from ..questdb import (
     rewards_due,
 )
 from .dialogs import Placeholder
+from .discordshare import DISCORD_BTN
 
 
 class QuestsPage:
@@ -95,6 +96,8 @@ class QuestsPage:
         self.qdb_wh_btn = ttk.Button(btns, text=tr("Auf Wowhead öffnen ↗"), style="Primary.TButton",
                                      command=self.qdb_wowhead, state="disabled")
         self.qdb_wh_btn.pack(side="left", padx=(6, 0))
+        self.qdb_discord_btn = ttk.Button(btns, text=DISCORD_BTN, command=self.share_quest_discord, state="disabled")
+        self.qdb_discord_btn.pack(side="left", padx=(6, 0))
         self.qdb_fav_btn = ttk.Button(btns, text=tr("☆ Favorit"), command=self.qdb_fav, state="disabled")
         self.qdb_fav_btn.pack(side="right")
         self._set_text(self.qdb_text, parts=[(tr("Die Quests kommen aus QuestieDB, der Datenbank von Questie. Leeroyzan "
@@ -253,7 +256,7 @@ class QuestsPage:
         if remember and self.qdb_current and self.qdb_current != qid:
             self.qdb_history.append(self.qdb_current)
         self.qdb_current = qid
-        for b in (self.qdb_wh_btn, self.qdb_fav_btn):
+        for b in (self.qdb_wh_btn, self.qdb_discord_btn, self.qdb_fav_btn):
             b.configure(state="normal")
         self.qdb_back_btn.configure(state="normal" if self.qdb_history else "disabled")
         self.qdb_fav_btn.configure(text=tr("★ Favorit entfernen") if self._qdb_is_fav(qid) else tr("☆ Favorit"))

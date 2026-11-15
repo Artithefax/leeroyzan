@@ -3,6 +3,17 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## Unreleased
+
+### New: share on Discord
+- **A *Discord ↗* button wherever there is something to share:** talent builds (points per tree, every talent with its rank, the start of the skill order, link to the Wowhead talent calculator), saved guides (with links to the builds inside), Wowhead search results with their tooltip and icon, quests from QuestieDB, characters (gold only if you tick it) and addon lists.
+- **Addon lists** arrive with links to CurseForge and GitHub *and* the download-list code. Friends copy the code into *Share → Receive* in their Leeroyzan to install everything. Long lists are split into several messages. Single addons: right click in the addon list → *Share on Discord …*.
+- **Preview and comment:** before anything is sent you see what will appear in Discord and can add a line of your own.
+- **Settings → Discord:** an optional channel of its own for shared posts (otherwise the session channel) and your name under shared posts. `@everyone`, `@here` and other mentions in a comment are never triggered.
+
+### Fixed
+- On the *Builds* page a long status text no longer pushes the buttons out of view.
+
 ## 2.2.0
 
 ### Discord

@@ -15,6 +15,7 @@ from ..reports import QUALITY_COLORS
 from ..talents import TALENT_EDITIONS, Build, load_talents, parse_build_link, talent_class, talent_classes
 from ..wowhead import wowhead_base
 from .dialogs import Placeholder
+from .discordshare import DISCORD_BTN
 from .theme import THEME
 
 ICON_SIZES = (28, 32, 36, 40, 44, 48, 56, 64)
@@ -92,10 +93,12 @@ class BuildsPage:
 
         bar2 = ttk.Frame(frame)
         bar2.pack(fill="x", pady=(8, 0))
-        ttk.Label(bar2, textvariable=self.bld_status_var, style="Body.TLabel").pack(side="left", fill="x", expand=True)
-        ttk.Button(bar2, text=tr("Auf Wowhead öffnen ↗"), command=self.bld_open).pack(side="right")
+        # erst die Knöpfe, dann der Status: Ein langer Status wird gekürzt, nicht die Knöpfe
+        ttk.Button(bar2, text=DISCORD_BTN, command=self.share_build_discord).pack(side="right")
+        ttk.Button(bar2, text=tr("Auf Wowhead öffnen ↗"), command=self.bld_open).pack(side="right", padx=(0, 6))
         ttk.Button(bar2, text=tr("Link kopieren"), command=self.bld_copy).pack(side="right", padx=(0, 6))
         ttk.Button(bar2, text=tr("Punkte zurücksetzen"), command=lambda: self.bld_reset()).pack(side="right", padx=(0, 6))
+        ttk.Label(bar2, textvariable=self.bld_status_var, style="Body.TLabel", width=1).pack(side="left", fill="x", expand=True)
 
         body = ttk.Frame(frame)
         body.pack(fill="both", expand=True, pady=(8, 0))
@@ -143,6 +146,8 @@ class BuildsPage:
         self.gd_open_btn.pack(side="left")
         self.gd_refresh_btn = ttk.Button(btns, text=tr("Aktualisieren"), command=self.gd_refresh, state="disabled")
         self.gd_refresh_btn.pack(side="left", padx=(6, 0))
+        self.gd_discord_btn = ttk.Button(btns, text=DISCORD_BTN, command=self.share_guide_discord, state="disabled")
+        self.gd_discord_btn.pack(side="left", padx=(6, 0))
         self.gd_del_btn = ttk.Button(btns, text=tr("Entfernen"), command=self.gd_delete, state="disabled")
         self.gd_del_btn.pack(side="right")
 
@@ -638,7 +643,7 @@ class BuildsPage:
         g = load_guide(gid) if gid else None
         self.gd_current = g
         state = "normal" if g else "disabled"
-        for btn in (self.gd_open_btn, self.gd_refresh_btn, self.gd_del_btn):
+        for btn in (self.gd_open_btn, self.gd_refresh_btn, self.gd_discord_btn, self.gd_del_btn):
             btn.configure(state=state)
         txt = self.gd_text
         txt.configure(state="normal")

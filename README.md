@@ -28,7 +28,7 @@ One window, no pop-ups. A sidebar with the game version, the pages and a big **P
 | **My addons** | All installed addons as a list or as tiles, with search, grouping and a detail panel (update, undo an update, hold, open source, link with CurseForge, open folder, remove). Addons with an update are yellow with a ⬇ marker. |
 | **Discover** | Install directly from a CurseForge link, a GitHub repository or a ZIP from your download folder – and search CurseForge (WoW addons only) with file choice. |
 | **Updates** | Check and update all or single addons, read the changes, see which blocked downloads Leeroyzan is waiting for, link manual addons, and keep Leeroyzan itself up to date. |
-| **Leeroylink** | Every play session recorded by the companion addon **Leeroylink** – a summary per session, totals, charts, forecast, records, death statistics, farming spots and dungeon history; optionally posted to Discord (see below). |
+| **Leeroylink** | Every play session recorded by the companion addon **Leeroylink** – a summary per session, totals, charts, forecast, records, death statistics, farming spots and dungeon history; optionally posted to Discord (see [Discord](#discord)). |
 | **Characters** | All your characters with level, gold, professions, bags and bank; *Who has what?* search and a shopping list for any stored recipe across all characters. |
 | **Quests** | Search the quest database of QuestieDB (read straight from its addon folder): quest chains, quest givers with coordinates, objectives, requirements, XP and reputation – plus the item rewards your characters have seen. |
 | **Auction house** | Prices from Auctionator's database (scan the auction house in the game): current minimum price, 14-day average, change, quantity and a price chart per item; filter by name, category, quality and level, find bargains, items below vendor price and what your characters own (with its worth). |
@@ -84,6 +84,14 @@ Leeroyzan comes with its own companion addon, **Leeroylink** (folder `Leeroylink
 
 How it works: WoW addons cannot open network connections or write files, so the addon keeps its data in its *SavedVariables* (`WTF\Account\<account>\SavedVariables\Leeroylink.lua`, the newest 30 sessions), which WoW writes on logout and on `/reload`. Leeroyzan watches that file, **only reads it** and stores each session as a JSON file in `Leeroyzan-Data\sessions\<game version>`. A `/reload` or logging back in with the same character within 15 minutes continues the same session. If Leeroyzan is open while you play, the summary appears as soon as the game is closed; otherwise on the next start. In the game, `/lz session` shows the current session.
 
+## Discord
+
+Everything Discord lives in *Settings → Discord*. Leeroyzan needs no bot and no token.
+
+- **Session reports:** paste the webhook address of a channel (*Edit channel → Integrations → Webhooks*) and tick *Send automatically after every session*. Every new session is posted with play time, level, XP, gold, enemies, quests, deaths, distance, bosses, best loot, dungeons, discovered areas and new personal records, in the colour of the class. *Discord ↗* on the **Leeroylink** page sends a single session.
+- **Share anything:** the button *Discord ↗* shares a talent build (**Builds**, with points per tree, talents and a link to the Wowhead talent calculator), a saved guide, a Wowhead search result with its tooltip, a quest from QuestieDB (**Quests**), a character (**Characters**, gold only if you tick it) and addon lists (**Share**, or right click in the addon list → *Share on Discord …*). An addon list arrives with links to CurseForge/GitHub *and* the download-list code – friends copy it into *Share → Receive*. Before sending you see a preview and can add a comment. Shared posts can go to a channel of their own and carry your name; mentions such as `@everyone` in a comment are never triggered.
+- **Profile status (Rich Presence):** *Show in my Discord profile that I am playing* – while WoW runs, Discord shows "Playing Leeroyzan – WoW Forever" with the time played and, optionally, the character played last with level and class. Leeroyzan talks to the Discord app on your PC directly.
+
 ## CurseForge integration
 
 Addons can be found and installed from CurseForge right inside the manager (**Discover** page): a search that only covers World of Warcraft addons, sorted by popularity, downloads, last update or name, with a filter for your game version (Classic, TBC, WotLK, Cata, MoP or Retail), paging, and multi-select install. Pasting a project link or ID still works. Installed addons are included in the normal update check. It uses the official CurseForge API and is designed to respect addon authors:
@@ -119,6 +127,7 @@ ruff check .
 
 - `tests/test_sessions.py` drives Leeroylink through a small imitation of the WoW API (a scripted play session with a `/reload` in the middle, the quest companion with real quest data) and checks the import, the summaries, QuestieDB, rewards, the auction house and the self-update.
 - `tests/test_files.py` covers installing, undo, interrupted updates, parked sources, settings, encryption and signatures.
+- `tests/test_discordshare.py` checks the Discord posts (builds, guides, Wowhead, quests, characters, addon lists) against Discord's limits and clicks every *Discord ↗* button in the window; `tests/test_presence.py` talks to a stand-in for the Discord app.
 - `tests/test_gui.py` opens the window in every layout and language and shows every page (on Linux: `xvfb-run -a python -m unittest tests.test_gui`).
 - `tests/test_i18n.py`, `tests/test_static.py` and `tests/test_lua_globals.py` check translations, typical mistakes in the source and stray Lua globals (needs `luac`).
 - `tests/test_windows.py` covers what only exists on Windows: encrypted keys (DPAPI), the process list, waiting for a process, replacing the `.exe` and the signature check.
@@ -167,7 +176,7 @@ Publishing a release by hand still works: the build then starts after publishing
 
 ## Where data is stored
 
-Configuration, backups, kept previous addon versions (for *undo*), imported play sessions, caches and the log file are stored in the `Leeroyzan-Data` folder next to `Leeroyzan.exe` (*Settings → Help → Open data folder*). On Windows, the CurseForge API key, the GitHub token and the Discord webhook are stored encrypted for your Windows account; on another PC Leeroyzan asks for them again. While installing or updating, Leeroyzan briefly uses a work folder `Interface\.leeroyzan-…` next to `AddOns` – that makes swapping folders instant and safe, and it disappears right after. The manager only reads and writes files inside the WoW `Interface\AddOns`, `Interface\AddOns_Disabled` and `WTF` folders – it never modifies the game client.
+Configuration, backups, kept previous addon versions (for *undo*), imported play sessions, caches and the log file are stored in the `Leeroyzan-Data` folder next to `Leeroyzan.exe` (*Settings → Help → Open data folder*). On Windows, the CurseForge API key, the GitHub token and the Discord webhooks are stored encrypted for your Windows account; on another PC Leeroyzan asks for them again. While installing or updating, Leeroyzan briefly uses a work folder `Interface\.leeroyzan-…` next to `AddOns` – that makes swapping folders instant and safe, and it disappears right after. The manager only reads and writes files inside the WoW `Interface\AddOns`, `Interface\AddOns_Disabled` and `WTF` folders – it never modifies the game client.
 
 ## License
 

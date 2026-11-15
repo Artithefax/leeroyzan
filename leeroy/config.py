@@ -139,7 +139,7 @@ def write_text_atomic(path: Path, text: str, newline: str | None = None) -> None
     os.replace(tmp, path)
 
 
-SECRET_KEYS = ("github_token", "curseforge_key", "discord_webhook")
+SECRET_KEYS = ("github_token", "curseforge_key", "discord_webhook", "discord_share_webhook")
 SECRETS_LOST: list[str] = []          # Schlüssel, die auf diesem PC nicht entschlüsselt werden konnten
 _LAST_SAVED: dict[str, str] = {}
 
