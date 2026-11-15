@@ -6,10 +6,11 @@ import re
 from tkinter import ttk
 import tkinter as tk
 
-from ..constants import APP_VERSION, HEADER_LINKS
+from ..constants import APP_VERSION, DISCORD_APP_ID, HEADER_LINKS
 from ..i18n import tr
 from ..sharing import LIST_PART_SIZES
 from ..linkdata import empty_link_state
+from ..presence import DiscordPresence
 from .theme import THEME, UPD_MARK, apply_theme, draw_emblem, make_icon, spaced
 
 
@@ -96,6 +97,12 @@ class LayoutMixin:
         self.sess_view = self.cfg.get("sess_view", "report") if self.cfg.get("sess_view") in ("report", "charts", "analysis") else "report"
         self.discord_var = tk.StringVar(value=self.cfg.get("discord_webhook", ""))
         self.discord_auto_var = tk.BooleanVar(value=bool(self.cfg.get("discord_auto")))
+        self.presence_var = tk.BooleanVar(value=bool(self.cfg.get("discord_presence")))
+        self.presence_char_var = tk.BooleanVar(value=bool(self.cfg.get("discord_presence_char", True)))
+        self.presence_state_var = tk.StringVar()
+        self._presence = DiscordPresence(DISCORD_APP_ID)
+        self._presence_busy = False
+        self._presence_since = 0.0
         self.sort_col, self.sort_rev = "name", False
         self.open_groups: set[str] = set()
         self.group_members: dict[str, list[str]] = {}

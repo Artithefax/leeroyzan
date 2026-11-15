@@ -712,6 +712,95 @@ class GameDataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             lz.discord_send("https://example.com/hook", payload)
 
+    def test_discord_highlights_and_retry(self):
+        import io
+        import urllib.error
+        s = self.sessions[0]
+        lz.set_language("de")
+        emb = lz.discord_payload(s)["embeds"][0]
+        names = [f["name"] for f in emb["fields"]]
+        self.assertEqual(emb["color"], lz.CLASS_COLORS.get(s["class"], lz.DISCORD_COLOR))
+        self.assertEqual("Instanzen" in names, bool(s["runs"]))
+        self.assertEqual("Entdeckt" in names, bool(s["explore"]["found"]))
+        self.assertNotIn("Neue Rekorde", names)                    # ohne frühere Sitzungen kein Rekord
+        self.assertLessEqual(len(json.dumps(emb)), 6000)
+
+        # Rekorde: erst ab drei früheren Sitzungen desselben Charakters, nur echte Bestwerte, nie „Meiste Tode“
+        def copy(i, **kw):
+            x = json.loads(json.dumps(s))
+            x.update(id=f"old{i}", start=s["start"] - (i + 1) * 86400, stop=s["start"] - (i + 1) * 86400 + 600, played=600, **kw)
+            x["xp"]["total"] = 1
+            x["deathN"] = 0
+            return x
+        earlier = [copy(i) for i in range(3)]
+        self.assertEqual(lz.new_records(s, earlier[:2]), [])
+        self.assertEqual(lz.new_records(s, [copy(i, char="Anderer-Realm") for i in range(3)]), [])
+        labels = [label for label, _ in lz.new_records(s, earlier)]
+        self.assertIn("Meiste Erfahrung", labels)
+        self.assertNotIn("Meiste Tode", labels)
+        self.assertEqual(lz.new_records(s, earlier + [s]), lz.new_records(s, earlier))     # sich selbst nicht mitzählen
+        better = copy(9); better["xp"]["total"] = s["xp"]["total"] + 1
+        self.assertNotIn("Meiste Erfahrung", [label for label, _ in lz.new_records(s, earlier + [better])])
+        lz.set_language("en")
+        rec = next(f for f in lz.discord_payload(s, earlier)["embeds"][0]["fields"] if f["name"] == "New records")
+        self.assertIn("Most experience", rec["value"])
+        self.assertFalse(rec["inline"])
+        lz.set_language("de")
+
+        # HTTP 429: warten, wie Discord es verlangt, und wiederholen
+        mod = lz.module_of("discord_send")
+        url = "https://discord.com/api/webhooks/123/abc-DEF"
+        real, calls, waits = mod.urllib.request.urlopen, [], []
+
+        class OK:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b""
+
+        def limited(n, code=429, body=b'{"retry_after": 0.5}'):
+            def fake(req, timeout=0):
+                calls.append(req)
+                if len(calls) <= n:
+                    raise urllib.error.HTTPError(url, code, "x", {"Retry-After": "3"}, io.BytesIO(body))
+                return OK()
+            return fake
+        try:
+            mod.urllib.request.urlopen = limited(1)
+            lz.discord_send(url, {"content": "x"}, sleep=waits.append)
+            self.assertEqual((len(calls), waits), (2, [0.75]))
+            calls.clear(); waits.clear()
+            mod.urllib.request.urlopen = limited(1, body=b"kein json")          # dann gilt die Kopfzeile
+            lz.discord_send(url, {"content": "x"}, sleep=waits.append)
+            self.assertEqual(waits, [3.25])
+            calls.clear(); waits.clear()
+            mod.urllib.request.urlopen = limited(99)
+            with self.assertRaises(RuntimeError):
+                lz.discord_send(url, {"content": "x"}, sleep=waits.append)
+            self.assertEqual(len(calls), lz.DISCORD_RETRIES + 1)
+            calls.clear(); waits.clear()
+            mod.urllib.request.urlopen = limited(99, code=404)
+            with self.assertRaises(RuntimeError) as cm:
+                lz.discord_send(url, {"content": "x"}, sleep=waits.append)
+            self.assertEqual((len(calls), waits), (1, []))
+            self.assertIn("404", str(cm.exception))
+            # mehrere Sitzungen: älteste zuerst, nach einem Fehler nicht weiter
+            calls.clear(); waits.clear()
+            mod.urllib.request.urlopen = limited(0)
+            sent, err = lz.discord_send_sessions(url, [s, earlier[0], earlier[1]], [], sleep=waits.append)
+            self.assertEqual((sent, err, waits), (["old1", "old0", s["id"]], None, [1.0, 1.0]))
+            calls.clear()
+            def second_fails(req, timeout=0):
+                calls.append(req)
+                if len(calls) == 2:
+                    raise urllib.error.HTTPError(url, 500, "x", {}, io.BytesIO(b""))
+                return OK()
+            mod.urllib.request.urlopen = second_fails
+            sent, err = lz.discord_send_sessions(url, [s, earlier[0], earlier[1]], [], sleep=lambda t: None)
+            self.assertEqual(sent, ["old1"])
+            self.assertIsInstance(err, RuntimeError)
+        finally:
+            mod.urllib.request.urlopen = real
+
 
 if __name__ == "__main__":
     try:

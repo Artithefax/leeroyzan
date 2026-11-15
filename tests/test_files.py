@@ -74,6 +74,7 @@ class InstallTests(unittest.TestCase):
         work = self.root / self.fl / "Interface" / ".leeroyzan-crash"
         (work / "old" / "0_Baz").mkdir(parents=True)
         (work / "old" / "0_Baz" / "version.txt").write_text("1")
+        os.utime(work, (time.time() - 60,) * 2)     # Windows: ein frischer Ordner kann minimal „in der Zukunft“ liegen
         self.assertEqual(files.recover_staging(str(self.root), self.fl, min_age=0), ["Baz"])
         self.assertEqual(self.version("Baz"), "1")
         self.assertFalse(work.exists())

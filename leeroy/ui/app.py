@@ -90,6 +90,7 @@ class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, Upda
         self._cleanup_update_file()
         self.after(2500, self._housekeeping)
         self.after(10000, self._watch_sessions)
+        self.after(4000, self._watch_presence)
         self.after(900, self._report_self_update)
         if self.cfg.get("self_update_mode") != "off":
             self.after(1500, lambda: self.check_manager_update(silent=True))
@@ -160,6 +161,7 @@ class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, Upda
             save_config(self.cfg)
         except tk.TclError:
             pass
+        self._presence.close()          # Discord nimmt die Anzeige zurück
         self.destroy()
 
     def _typing(self) -> bool:

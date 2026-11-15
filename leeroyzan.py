@@ -13,6 +13,7 @@ Startskript – der Code liegt im Paket leeroy/ (Logik) und leeroy/ui/ (Oberflä
   leeroy/github.py, curseforge.py, sharing.py   Quellen, Updates, Teilen
   leeroy/selfupdate.py  Selbst-Update des Managers
   leeroy/lua.py, sessions.py, reports.py, linkdata.py, linkaddon.py   Leeroylink
+  leeroy/presence.py    Discord Rich Presence (Anzeige im Profil)
   leeroy/wowhead.py, questdb.py, auction.py    Nachschlagen, Quests, Auktionshaus
   leeroy/ui/app.py      Hauptfenster aus den Seiten in leeroy/ui/*.py
 

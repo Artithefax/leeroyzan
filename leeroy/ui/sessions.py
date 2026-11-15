@@ -1,6 +1,7 @@
 """Seite „Leeroylink“: Spielsitzungen, Berichte, Diagramme, Auswertung und Discord. (Mixin, wird in App eingemischt)."""
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -32,12 +33,15 @@ from ..linkaddon import (
     migrate_link_savedvariables,
     old_link_dir,
 )
+from ..presence import latest_char, presence_activity
 from ..reports import (
+    CLASS_NAMES,
     DISCORD_WEBHOOK_RE,
     analysis_report,
     chart_series,
     discord_payload,
     discord_send,
+    discord_send_sessions,
     fmt_clock,
     fmt_day,
     fmt_dur,
@@ -345,8 +349,39 @@ class SessionsPage:
         self.notify(text, "ok", [(tr("Zusammenfassung ansehen"), lambda sid=last["id"]: self.show_session(sid))],
                     timeout=180000)
         self.set_status(text)
-        if self.cfg.get("discord_auto") and self.cfg.get("discord_webhook") and not last.get("legacy"):
-            self.send_session_discord(last, quiet=True)
+        if self.cfg.get("discord_auto") and self.cfg.get("discord_webhook"):
+            self._discord_auto_send(pending)
+
+    DISCORD_AUTO_MAX = 5           # höchstens so viele Sitzungen auf einmal automatisch senden (die neuesten)
+    DISCORD_SENT_KEEP = 300        # so viele gesendete Sitzungen merken – damit keine doppelt im Kanal landet
+
+    def _discord_auto_send(self, pending: list[dict]):
+        """Alle neu gespeicherten Sitzungen senden, älteste zuerst – jede nur einmal."""
+        url = (self.cfg.get("discord_webhook") or "").strip()
+        sent = list(self.cfg.get("discord_sent") or [])
+        todo = [s for s in pending if not s.get("legacy") and s["id"] not in sent][-self.DISCORD_AUTO_MAX:]
+        if not url or not todo:
+            return
+        flavor = self.flavor
+
+        def work():
+            return discord_send_sessions(url, todo, load_sessions(flavor))
+
+        def done(res, err):
+            done_ids, err = res if res else ([], err)
+            if done_ids:
+                self.cfg["discord_sent"] = (list(self.cfg.get("discord_sent") or []) + done_ids)[-self.DISCORD_SENT_KEEP:]
+                save_config(self.cfg)
+                log.info("Sitzungen an Discord gesendet: %s", ", ".join(done_ids))
+            if err:
+                log.warning("Discord: %s", err)
+                self.set_status(tr("Discord: {0}", err))
+            elif len(done_ids) == 1:
+                self.set_status(tr("Sitzung an Discord gesendet."))
+            else:
+                self.set_status(tr("{0} Sitzungen an Discord gesendet.", len(done_ids)))
+
+        self.run_quiet(work, done)
 
     # Addon installieren ------------------------------------------------------------ #
     def update_link_state(self) -> bool:
@@ -603,7 +638,7 @@ class SessionsPage:
                 self.notify(tr("Trage zuerst eine Discord-Webhook-Adresse in den Einstellungen ein."), "info",
                             [(tr("Einstellungen"), lambda: self.show_page("settings"))])
             return
-        payload = discord_payload(s)
+        flavor = self.flavor
 
         def done(res, err):
             if err:
@@ -616,7 +651,7 @@ class SessionsPage:
             log.info("Sitzung an Discord gesendet: %s", s["id"])
             self.set_status(tr("Sitzung an Discord gesendet."))
 
-        self.run_quiet(lambda: discord_send(url, payload), done)
+        self.run_quiet(lambda: discord_send(url, discord_payload(s, load_sessions(flavor) if flavor else [])), done)
 
     def _w_discord(self, parent):
         box = ttk.Frame(parent, style="Panel.TFrame")
@@ -629,7 +664,75 @@ class SessionsPage:
         ttk.Checkbutton(box, text=tr("Nach jeder Sitzung automatisch senden"), variable=self.discord_auto_var,
                         style="Wrap.TCheckbutton", command=self._save_discord).pack(anchor="w", pady=(6, 0))
         ttk.Button(box, text=tr("Letzte Sitzung senden (Test)"), command=self._discord_test).pack(anchor="w", pady=(6, 0))
+        ttk.Separator(box).pack(fill="x", pady=(12, 8))
+        ttk.Checkbutton(box, text=tr("Im Discord-Profil anzeigen, dass ich spiele (solange Leeroyzan läuft)"),
+                        variable=self.presence_var, style="Wrap.TCheckbutton", command=self._save_presence).pack(anchor="w")
+        ttk.Checkbutton(box, text=tr("Dabei den zuletzt gespielten Charakter mit Stufe und Klasse nennen"),
+                        variable=self.presence_char_var, style="Wrap.TCheckbutton", command=self._save_presence).pack(anchor="w", pady=(6, 0))
+        ttk.Label(box, textvariable=self.presence_state_var, style="Panel.TLabel", foreground=THEME["text_faint2"],
+                  wraplength=280, justify="left").pack(anchor="w", pady=(6, 0))
         return box
+
+    # --- Discord: Anzeige im Profil (Rich Presence) ---------------------------------------------- #
+    PRESENCE_POLL_MS = 15000
+
+    def _save_presence(self):
+        self.cfg["discord_presence"] = bool(self.presence_var.get())
+        self.cfg["discord_presence_char"] = bool(self.presence_char_var.get())
+        save_config(self.cfg)
+        self._presence_tick(report=True)
+
+    def _watch_presence(self):
+        """Alle 15 s: Läuft das Spiel? Dann die Anzeige setzen, sonst zurücknehmen."""
+        try:
+            self._presence_tick()
+        except tk.TclError as e:
+            log.warning("Discord-Anzeige: %s", e)
+        finally:
+            self.after(self.PRESENCE_POLL_MS, self._watch_presence)
+
+    def _presence_tick(self, report: bool = False):
+        on = bool(self.cfg.get("discord_presence"))
+        if self._presence_busy or (not on and not self._presence.connected and not report):
+            return
+        root, flavor = self.root_path, self.flavor
+        char = latest_char(self.link_state.get("chars")) if self.cfg.get("discord_presence_char", True) else None
+        pr = self._presence
+        self._presence_busy = True
+
+        def work():
+            if not on:
+                pr.close()
+                return "off"
+            if not (root and flavor and running_wow(root, flavor)):
+                self._presence_since = 0.0
+                if report and not pr.connected:          # nach dem Einschalten kurz prüfen, ob Discord erreichbar ist
+                    found = pr.connect()
+                    pr.close()
+                    return "ready" if found else "nodiscord"
+                pr.close()
+                return "idle"
+            self._presence_since = self._presence_since or time.time()
+            return "shown" if pr.update(presence_activity(flavor, self._presence_since, char, CLASS_NAMES)) else "nodiscord"
+
+        def done(res, err):
+            self._presence_busy = False
+            if err:
+                log.warning("Discord-Anzeige: %s", err)
+                return
+            text = {"off": "", "idle": "",
+                    "ready": tr("Discord gefunden – die Anzeige erscheint, sobald WoW läuft."),
+                    "shown": tr("Discord zeigt jetzt an, dass du spielst."),
+                    "nodiscord": tr("Discord ist nicht erreichbar. Läuft das Discord-Programm auf diesem PC?")}[res]
+            last = getattr(self, "_presence_last", None)
+            if res != last:
+                self._presence_last = res
+                log.info("Discord-Anzeige: %s", res)
+            # „idle“ im Hintergrund lässt einen Hinweis vom Einschalten stehen – nur „du spielst“ wird zurückgenommen
+            if report or res != "idle" or last == "shown":
+                self.presence_state_var.set(text)
+
+        self.run_quiet(work, done)
 
     def _save_discord(self):
         url = self.discord_var.get().strip()
