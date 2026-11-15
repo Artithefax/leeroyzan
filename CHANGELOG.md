@@ -3,7 +3,7 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
-## Unreleased
+## 2.2.1
 
 ### New: share on Discord
 - **A *Discord ↗* button wherever there is something to share:** talent builds (points per tree, every talent with its rank, the start of the skill order, link to the Wowhead talent calculator), saved guides (with links to the builds inside), Wowhead search results with their tooltip and icon, quests from QuestieDB, characters (gold only if you tick it) and addon lists.
