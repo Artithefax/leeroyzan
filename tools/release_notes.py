@@ -21,4 +21,5 @@ def section(text: str, version: str) -> str:
 if __name__ == "__main__":
     notes = section((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), sys.argv[1])
     Path(sys.argv[2]).write_text(notes, encoding="utf-8")
-    print(notes)
+    # Die Windows-Konsole des Build-Rechners kann nicht jedes Zeichen (z. B. „→“) – die Ausgabe ist nur zur Ansicht
+    sys.stdout.buffer.write(notes.encode("utf-8"))
