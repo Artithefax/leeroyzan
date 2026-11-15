@@ -91,6 +91,54 @@ class InstallTests(unittest.TestCase):
         self.assertIsNone(files.read_rollback(self.fl, "me/other"))
 
 
+class BatchUpdateTests(unittest.TestCase):
+    """Mehrere Updates: erst alles laden, dann in der Reihenfolge des Plans installieren."""
+
+    def test_download_all_then_install_in_order(self):
+        import threading
+        events, lock = [], threading.Lock()
+        made = []
+
+        class Manual(Exception):
+            pass
+
+        def download(sid, info, asset):
+            time.sleep(asset["delay"])                  # „A“ ist langsam und kommt als letzte an
+            with lock:
+                events.append(("dl", sid))
+            if sid == "manual":
+                raise Manual("nur im Browser")
+            if sid == "broken":
+                raise OSError("Netzwerk weg")
+            p = TMP / f"batch-{sid}-{time.time_ns()}.zip"
+            p.write_bytes(b"zip")
+            made.append(p)
+            return p
+
+        def install(sid, info, asset, path):
+            self.assertTrue(path.exists())
+            with lock:
+                events.append(("inst", sid))
+            if sid == "badzip":
+                raise ValueError("kein Addon im Archiv")
+            return [sid]
+
+        plan = [(sid, {"repo": sid}, {"delay": d}) for sid, d in
+                (("A", 0.3), ("manual", 0.0), ("B", 0.05), ("broken", 0.0), ("badzip", 0.0), ("C", 0.1))]
+        said = []
+        ok, manual, errors = files.download_then_install(plan, download, install, said.append, manual_exc=Manual)
+        self.assertEqual([x[0] for x in ok], ["A", "B", "C"])                              # Reihenfolge des Plans
+        self.assertEqual([x[0]["repo"] for x in manual], ["manual"])
+        self.assertEqual(sorted(x[0] for x in errors), ["badzip", "broken"])
+        first_install = next(i for i, e in enumerate(events) if e[0] == "inst")
+        self.assertEqual({e[1] for e in events[:first_install]}, {sid for sid, _, _ in plan})   # erst alle geladen
+        self.assertEqual([e[1] for e in events if e[0] == "inst"], ["A", "B", "badzip", "C"])
+        self.assertFalse(any(p.exists() for p in made), "temporäre ZIPs werden gelöscht")
+        self.assertIn("Lade 6 von 6 …", said)
+        self.assertIn("Installiere 1 von 4: A …", said)
+        self.assertEqual(files.download_then_install([], download, install), ([], [], []))
+
+
 class SourceTests(unittest.TestCase):
     def test_unhealthy_scan_changes_nothing(self):
         cfg = {"sources": {"_f_": {"a/b": {"folders": ["A"]}}}}

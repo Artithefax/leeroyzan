@@ -4,6 +4,14 @@ The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
 
+
+## Unreleased
+
+### Updating several addons
+- **First everything is downloaded, then installed one after another.** Leeroyzan now downloads all updates first (four at a time) and installs them afterwards in order, with progress in the status bar ("Downloading 3 of 8 …", "Installing 2 of 8: Questie …"). A failed download or a broken archive no longer holds up the others.
+- **Addons whose author blocks downloads by programs:** Leeroyzan used to open only the first download page in the browser – the others waited silently in the list, so it looked as if it stopped after one addon. Now it opens the pages one after another: as soon as a file is in your download folder and installed, the next page opens by itself. The notice says which file is next ("File 2 of 5 …") and offers *Next page* (don't wait for this one) and *Open all pages*. *Stop waiting* in the list moves on to the next page as well.
+- If your browser asks where to save a download, choose the download folder shown in the notice – Leeroyzan watches that folder.
+
 ## 2.2.3
 
 ### Leeroylink 0.8.0: a new look in the game

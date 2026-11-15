@@ -566,9 +566,9 @@ class AddonsPage:
             ttk.Label(row, text=f"{w['info'].get('repo') or sid}  ·  {w['asset'].get('file_name', '')}",
                       style="Panel.TLabel").pack(side="left")
             ttk.Button(row, text=tr("Nicht mehr warten"),
-                       command=lambda s=sid: (self.dl_watch.pop(s, None), self.refresh_browser_list())).pack(side="right")
+                       command=lambda s=sid: (self.dl_watch.pop(s, None), self.refresh_browser_list(), self._chain_after(s))).pack(side="right")
             ttk.Button(row, text=tr("Download-Seite öffnen ↗"),
-                       command=lambda w=w: self.open_link(cf_download_url(w["info"], w["asset"]))).pack(
+                       command=lambda s=sid, w=w: (self.dl_opened.add(s), self.open_link(cf_download_url(w["info"], w["asset"])))).pack(
                 side="right", padx=(0, 6))
 
     # ----- Auswahl / Verwalten -------------------------------------------- #

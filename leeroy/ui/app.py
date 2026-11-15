@@ -64,6 +64,10 @@ class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, Upda
         self._watch_manual = False
         self._cf_search_state: dict = {}
         self.dl_watch: dict[str, dict] = {}     # CurseForge-Updates, deren ZIP im Download-Ordner erwartet wird
+        self.dl_chain: list[str] = []           # Browser-Downloads in der Reihenfolge, in der die Seiten geöffnet werden
+        self.dl_opened: set[str] = set()        # … davon schon im Browser geöffnet
+        self.dl_chain_total = 0
+        self.dl_chain_intro = ""
         self._dl_job = None
         self._dl_seen: dict[str, tuple] = {}     # Pfad -> (Größe, Änderungszeit) beim letzten Blick
         self._dl_checked: dict[str, tuple] = {}  # Pfad -> (Größe, Änderungszeit) schon geprüft, passte nicht
