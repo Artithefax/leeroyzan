@@ -4,7 +4,7 @@ The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
 
-## Unreleased
+## 2.2.3
 
 ### Leeroylink 0.8.0: a new look in the game
 - **The window looks like the game's own.** Leeroylink now uses Blizzard's window templates as WoW Forever draws them: portrait frame with the Leeroylink emblem, tabs at the bottom, quest-log parchment for the pages, the game's list style on the left. Text is set in dark ink on the parchment.
