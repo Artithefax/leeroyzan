@@ -44,12 +44,8 @@ local function buildSettings(parent)
 	local page = CreateFrame("Frame", nil, parent)
 	page:SetAllPoints()
 	Skin.Parchment(page)
-	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 14, -12)
-	scroll:SetPoint("BOTTOMRIGHT", -30, 10)
-	local f = CreateFrame("Frame", nil, scroll)
+	local scroll, f = Skin.Scroll(page, 18, -14, -8, 12)
 	f:SetSize(420, 600)
-	scroll:SetScrollChild(f)
 	local y = -2
 
 	local function header(textFn)
@@ -127,10 +123,7 @@ end
 ----------------------------------------------------------------------
 local function overviewText()
 	local lines = {}
-	local imp = LZ.import
-	if imp then
-		lines[#lines + 1] = string.format(T("Daten von Leeroyzan: Stand %s · %d Updates", "Data from Leeroyzan: as of %s · %d updates"), LZ.Ago(imp.generated), #imp.updates)
-	else
+	if not LZ.import then
 		lines[#lines + 1] = LZ.Color("808080", T("Noch keine Daten von Leeroyzan – Manager starten, dann /reload.", "No data from Leeroyzan yet – start the manager, then /reload."))
 	end
 	for i, tab in ipairs(TABS) do
@@ -145,12 +138,12 @@ local function overviewText()
 					elseif not mod.enabled then
 						summary = LZ.Color("808080", T("aus", "off"))
 					end
-					if summary and summary ~= "" then rows[#rows + 1] = LZ.Color("5a3a10", P(mod.title)) .. ":  " .. summary end
+					if summary and summary ~= "" then rows[#rows + 1] = LZ.Color("4a2a08", P(mod.title)) .. ":  " .. summary end
 				end
 			end
 			if #rows > 0 then
 				lines[#lines + 1] = ""
-				lines[#lines + 1] = LZ.Color("8a5a00", P(tab.label))
+				lines[#lines + 1] = LZ.Color(Skin.TITLE_HEX, P(tab.label))
 				for _, r in ipairs(rows) do lines[#lines + 1] = "  " .. r end
 			end
 		end
@@ -192,6 +185,13 @@ function UI:Build()
 		b:Hide()
 		self.actions[i] = b
 	end
+
+	-- status line in the strip under the title, next to the portrait
+	local status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	status:SetPoint("TOPLEFT", f, "TOPLEFT", 64, -34)
+	status:SetPoint("RIGHT", f, "RIGHT", -12, 0)
+	status:SetJustifyH("LEFT")
+	self.status = status
 
 	local labels = {}
 	for i, tab in ipairs(TABS) do labels[i] = P(tab.label) end
@@ -251,6 +251,10 @@ function UI:Refresh()
 		if not valid then self.key = pages[1] and pages[1].key end
 		self.list:SetItems(pages, self.key)
 	end
+
+	local imp = LZ.import
+	self.status:SetText(imp and string.format(T("Daten von Leeroyzan: %s  ·  %d Updates", "Data from Leeroyzan: %s  ·  %d updates"), LZ.Ago(imp.generated), #imp.updates)
+		or LZ.Color("a0a0a0", T("Noch keine Daten von Leeroyzan", "No data from Leeroyzan yet")))
 
 	local acts
 	if self.key == "settings" then

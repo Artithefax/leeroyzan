@@ -465,6 +465,17 @@ local gr, gg, gb = ink:match("|cff(%x%x)(%x%x)(%x%x)Gold")
 check(gr and (0.299 * tonumber(gr, 16) + 0.587 * tonumber(gg, 16) + 0.114 * tonumber(gb, 16)) / 255 <= 0.39
 	and tonumber(gr, 16) > tonumber(gb, 16), "gold becomes dark gold: " .. ink)
 check(ink:find("|cff202020dunkel", 1, true) == nil and ink:find("dunkel", 1, true) ~= nil, "dark grey stays readable")
+check(ink:find("|cff" .. Skin.TITLE_HEX .. "Gold", 1, true) ~= nil, "gold headings become the quest-title brown: " .. ink)
+local function lumOf(text, word)
+	local r, g, b = text:match("|cff(%x%x)(%x%x)(%x%x)" .. word)
+	return r and (0.299 * tonumber(r, 16) + 0.587 * tonumber(g, 16) + 0.114 * tonumber(b, 16)) / 255
+end
+check((lumOf(ink, "Grün") or 1) <= 0.25, "green is dark enough on parchment: " .. ink)
+local link = Skin.OnParchment("|cnIQ2:|Hitem:2589::::::::|h[Leinenstoff]|h|r und |cnIQ3:|Hitem:1::::::::|h[Blau]|h|r")
+check(not link:find("|cn", 1, true) and (lumOf(link, "|Hitem:2589") or 1) <= 0.25 and link:find("|Hitem:2589", 1, true),
+	"item links of newer clients (|cnIQ2:) are darkened and stay links: " .. link)
+local br, bg, bb = link:match("|cff(%x%x)(%x%x)(%x%x)|Hitem:1:")
+check(br and tonumber(bb, 16) > tonumber(br, 16), "blue items stay blue: " .. link)
 if PART == 2 then
 	check(_G.LeeroylinkBanner and Skin.lastBanner and Skin.lastBanner.title == "Boss besiegt"
 		and Skin.lastBanner.text:find("Edwin VanCleef", 1, true), "banner for the boss kill")
