@@ -46,9 +46,8 @@ class BrowserChainTests(unittest.TestCase):
         (self.wow / ".build.info").write_text("Branch!STRING:0|Version!STRING:0|Product!STRING:0\neu|1.60.1.1|wow_forever\n")
         self.dl = TMP / f"downloads{time.time_ns()}"
         self.dl.mkdir()
-        cfg = Path(os.environ["APPDATA"]) / "Leeroyzan"
-        cfg.mkdir(parents=True, exist_ok=True)
-        (cfg / "config.json").write_text(json.dumps({
+        lz.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        lz.CONFIG_FILE.write_text(json.dumps({
             "wow_root": str(self.wow), "flavor": "_forever_", "language": "de", "check_on_start": False,
             "self_update_mode": "off", "download_dir": str(self.dl)}), encoding="utf-8")
         self.errors = []
@@ -62,7 +61,7 @@ class BrowserChainTests(unittest.TestCase):
         for job in self.app.tk.splitlist(self.app.tk.call("after", "info")):
             self.app.after_cancel(job)
         self.app.destroy()
-        (Path(os.environ["APPDATA"]) / "Leeroyzan" / "config.json").unlink(missing_ok=True)
+        lz.CONFIG_FILE.unlink(missing_ok=True)
 
     def pump(self, until, seconds=5.0):
         end = time.time() + seconds
