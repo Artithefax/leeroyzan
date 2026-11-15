@@ -14,7 +14,7 @@ LUAC = shutil.which("luac5.1") or shutil.which("luac")
 
 LUA = {"_G", "bit", "date", "debugstack", "geterrorhandler", "ipairs", "math", "next", "pairs", "pcall", "print",
        "select", "seterrorhandler", "setmetatable", "string", "strsplit", "table", "time", "tonumber", "tostring",
-       "type", "unpack", "wipe", "xpcall", "hooksecurefunc", "issecretvalue"}
+       "type", "unpack", "wipe", "xpcall", "hooksecurefunc", "issecretvalue", "rawget"}
 WOW = set("""AcceptQuest C_DateAndTime C_Item C_Map C_QuestLog C_Spell C_Timer CanMerchantRepair
 CombatLogGetCurrentEventInfo CompleteQuest CreateFrame DoEmote Enum GameTooltip GetAbandonQuestName
 GetAuctionItemInfo GetBuildInfo GetCursorPosition GetFactionInfo GetFactionInfoByID GetGuildInfo GetInstanceInfo
@@ -27,7 +27,9 @@ IsFlying IsInInstance IsMounted IsQuestCompletable IsResting IsShiftKeyDown IsSw
 ReloadUI RepairAllItems RequestRaidInfo Screenshot SlashCmdList TooltipDataProcessor UIErrorsFrame UIParent
 UISpecialFrames UnitAffectingCombat UnitCanAttack UnitClass UnitClassification UnitExists UnitFactionGroup
 UnitGUID UnitIsAFK UnitIsDead UnitIsDeadOrGhost UnitIsPlayer UnitIsTapDenied UnitLevel UnitName UnitOnTaxi
-UnitRace UnitXP UnitXPMax""".split())
+UnitRace UnitXP UnitXPMax
+ButtonFrameTemplate_HideButtonBar GetMaterialTextColors PanelTemplates_SetNumTabs PanelTemplates_SetTab
+PanelTemplates_TabResize PlaySound""".split())
 OWN = {"LeeroylinkImport", "LeeroylinkQuests"}         # Data.lua (Leeroyzan) und die Questdaten
 SETTERS = {"Data.lua": {"LeeroylinkImport"}}            # nur diese Dateien dürfen globale Variablen anlegen
 

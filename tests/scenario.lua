@@ -439,6 +439,39 @@ local okR, report = pcall(mod.Report, mod)
 check(okR and type(report) == "string" and report:find("Sitzung", 1, true) ~= nil, "in-game report: " .. tostring(report):sub(1, 200))
 local okS, summary = pcall(mod.Summary, mod)
 check(okS and type(summary) == "string", "summary line: " .. tostring(summary))
+-- the main window: every tab and every page builds and fills without errors
+local UI, Skin = LZ.UI, LZ.Skin
+local okShow, errShow = pcall(UI.Show, UI)
+check(okShow and _G.LeeroylinkFrame and _G.LeeroylinkFrame.shown, "main window opens: " .. tostring(errShow))
+for i = 1, 6 do
+	local okTab, errTab = pcall(UI.SelectTab, UI, i)
+	check(okTab, "tab " .. i .. ": " .. tostring(errTab))
+end
+for _, m in ipairs(LZ.moduleList) do
+	if m.Report then
+		local okP, errP = pcall(UI.Show, UI, m.name)
+		check(okP and UI.key == m.name, "page " .. m.name .. ": " .. tostring(errP))
+		local okR2, rep = pcall(m.Report, m)
+		check(okR2 and type(rep) == "string", "report " .. m.name .. ": " .. tostring(rep))
+	end
+end
+check(pcall(UI.Show, UI, "settings") and UI.key == "settings" and UI.tab == 6, "settings page")
+check(pcall(LZ.coreCommands["sprache"], "en") and pcall(LZ.coreCommands["sprache"], "de"), "language switch with the window open")
+_G.LeeroylinkFrame:Hide()
+-- text on parchment: light colours become dark ink, colours keep their hue
+local ink = Skin.OnParchment("|cffffffffWeiß|r |cffffd100Gold|r |cff40ff40Grün|r |cff202020dunkel|r")
+check(ink:find("|cff" .. Skin.INK_HEX .. "Weiß", 1, true) ~= nil, "white becomes ink: " .. ink)
+local gr, gg, gb = ink:match("|cff(%x%x)(%x%x)(%x%x)Gold")
+check(gr and (0.299 * tonumber(gr, 16) + 0.587 * tonumber(gg, 16) + 0.114 * tonumber(gb, 16)) / 255 <= 0.39
+	and tonumber(gr, 16) > tonumber(gb, 16), "gold becomes dark gold: " .. ink)
+check(ink:find("|cff202020dunkel", 1, true) == nil and ink:find("dunkel", 1, true) ~= nil, "dark grey stays readable")
+if PART == 2 then
+	check(_G.LeeroylinkBanner and Skin.lastBanner and Skin.lastBanner.title == "Boss besiegt"
+		and Skin.lastBanner.text:find("Edwin VanCleef", 1, true), "banner for the boss kill")
+	Skin.UISettings().banners = false
+	check(Skin.Banner({ title = "x" }) == false, "banners can be switched off")
+	Skin.UISettings().banners = true
+end
 for _, e in pairs(LZ.gdb.errors or {}) do
 	if e.addon == "Leeroylink" then check(false, "error logged by the addon: " .. tostring(e.msg)) end
 end

@@ -24,14 +24,7 @@ local mod = LZ:NewModule("QuestGuide", {
 	},
 })
 
-local TEMPLATE = _G.BackdropTemplateMixin and "BackdropTemplate" or nil
-local BACKDROP = {
-	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 16,
-	insets = { left = 4, right = 4, top = 4, bottom = 4 },
-}
-local WIDTH, TEXT_W = 360, 318
+local WIDTH, HEIGHT = 400, 500
 local MAX_SHOWN_NEXT = 6
 local QUALITY = { [0] = "9d9d9d", "ffffff", "1eff00", "0070dd", "a335ee", "ff8000", "e6cc80" }
 
@@ -466,60 +459,36 @@ end
 
 local function build()
 	if frame then return end
-	frame = CreateFrame("Frame", "LeeroylinkQuestGuide", UIParent, TEMPLATE)
-	frame:SetSize(WIDTH, 440)
-	local p = mod.opt.pos
-	if type(p) == "table" and p[1] then
-		frame:SetPoint(p[1], UIParent, p[2] or p[1], p[3] or 0, p[4] or 0)
-	else
-		frame:SetPoint("RIGHT", UIParent, "RIGHT", -80, 40)
+	local Skin = LZ.Skin
+	frame = Skin.Window("LeeroylinkQuestGuide", P(mod.title), WIDTH, HEIGHT, {
+		pos = mod.opt.pos, save = function(p) mod.opt.pos = p end, anchor = "RIGHT", x = -80, y = 40,
+		openSound = "IG_QUEST_LOG_OPEN", closeSound = "IG_QUEST_LOG_CLOSE",
+	})
+	local portrait = Skin.Portrait(frame)
+	if portrait then
+		portrait:SetTexture("Interface\\QuestFrame\\UI-QuestLog-BookIcon")
+		if not portrait:GetTexture() then portrait:SetTexture(Skin.ICON) end
 	end
-	frame:SetFrameStrata("HIGH")
-	frame:SetClampedToScreen(true)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", function(s) s:StartMoving() end)
-	frame:SetScript("OnDragStop", function(s) s:StopMovingOrSizing(); savePosition() end)
-	if frame.SetBackdrop then
-		frame:SetBackdrop(BACKDROP)
-		frame:SetBackdropColor(0, 0, 0, 0.9)
+	frame.page = Skin.ParchmentPage(frame.body)
+	frame.page.defaultWidth = WIDTH - 50
+
+	local function button(label, fn)
+		return Skin.Button(frame, label, 110, fn)
 	end
-	frame:Hide()
-	if _G.UISpecialFrames then table.insert(UISpecialFrames, "LeeroylinkQuestGuide") end
+	frame.log = button(T("Questlog", "Quest log"), function() mod:ShowSelected(true) end)
+	frame.log:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 4)
+	frame.next = button(T("Danach >", "Next >"), function() step(1) end)
+	frame.next:SetPoint("RIGHT", frame.log, "LEFT", -4, 0)
+	frame.prev = button(T("< Vorher", "< Previous"), function() step(-1) end)
+	frame.prev:SetPoint("RIGHT", frame.next, "LEFT", -4, 0)
+	frame:HookScript("OnHide", function() autoShown = false end)
+end
 
-	local head = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	head:SetPoint("TOPLEFT", 14, -12)
-	head:SetText(P(mod.title))
-	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", -2, -2)
-
-	local scroll = CreateFrame("ScrollFrame", "LeeroylinkQuestGuideScroll", frame, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 12, -34)
-	scroll:SetPoint("BOTTOMRIGHT", -30, 40)
-	local content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(TEXT_W, 10)
-	scroll:SetScrollChild(content)
-	local text = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	text:SetPoint("TOPLEFT", 0, 0)
-	text:SetWidth(TEXT_W)
-	text:SetJustifyH("LEFT")
-	text:SetJustifyV("TOP")
-	if text.SetSpacing then text:SetSpacing(2) end
-	frame.scroll, frame.content, frame.text = scroll, content, text
-
-	local function button(label, x, fn)
-		local b = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-		b:SetSize(96, 22)
-		b:SetPoint("BOTTOMLEFT", x, 12)
-		b:SetText(label)
-		b:SetScript("OnClick", fn)
-		return b
-	end
-	frame.prev = button(T("< Vorher", "< Previous"), 12, function() step(-1) end)
-	frame.next = button(T("Danach >", "Next >"), 112, function() step(1) end)
-	frame.log = button(T("Questlog", "Quest log"), 212, function() mod:ShowSelected(true) end)
-	frame:SetScript("OnHide", function() autoShown = false end)
+local function render(id, keepScroll)
+	local page = frame.page
+	local pos = keepScroll and page.scroll.GetVerticalScroll and page.scroll:GetVerticalScroll() or 0
+	page:SetPage("", nil, mod:Text(id))
+	if keepScroll and page.scroll.SetVerticalScroll then page.scroll:SetVerticalScroll(pos) end
 end
 
 function mod:Show(id, auto)
@@ -527,9 +496,7 @@ function mod:Show(id, auto)
 	shownID = id
 	if not frame:IsShown() then autoShown = auto and true or false
 	elseif not auto then autoShown = false end
-	frame.text:SetText(self:Text(id))
-	frame.content:SetHeight(math.max(20, (frame.text:GetStringHeight() or 0) + 8))
-	frame.scroll:SetVerticalScroll(0)
+	render(id)
 	local list, pos = self:Chain(id)
 	if pos > 1 then frame.prev:Enable() else frame.prev:Disable() end
 	if pos < #list then frame.next:Enable() else frame.next:Disable() end
@@ -592,6 +559,18 @@ mod:Event("QUEST_COMPLETE", function(self)
 	end
 end)
 
+-- the last quest of a chain handed in: a banner for the whole chain
+mod:Event("QUEST_TURNED_IN", function(self, _, questID)
+	local q = quest(questID)
+	if not q or not LZ.Skin then return end
+	local list, pos = self:Chain(questID)
+	if #list < 2 or pos ~= #list then return end
+	local first = quest(list[1])
+	LZ.Skin.Banner({ title = T("Questreihe abgeschlossen", "Quest chain complete"), icon = "Interface\\QuestFrame\\UI-QuestLog-BookIcon",
+		text = string.format(T("%s  ·  %d Quests", "%s  ·  %d quests"), (first and first[NAME]) or q[NAME] or "?", #list),
+		onClick = function() self:Show(questID) end })
+end)
+
 mod:Event("QUEST_FINISHED", function()
 	if autoShown and frame then frame:Hide() end
 end)
@@ -603,8 +582,7 @@ local function refresh(self)
 			self.refreshing = nil
 			if frame:IsShown() and shownID then
 				waitingForItems = false
-				frame.text:SetText(self:Text(shownID))
-				frame.content:SetHeight(math.max(20, (frame.text:GetStringHeight() or 0) + 8))
+				render(shownID, true)
 			end
 		end)
 	end
@@ -621,8 +599,7 @@ mod:Event("QUEST_LOG_UPDATE", function(self)
 		LZ.After(0.5, function()
 			self.refreshing = nil
 			if frame:IsShown() and shownID then
-				frame.text:SetText(self:Text(shownID))
-				frame.content:SetHeight(math.max(20, (frame.text:GetStringHeight() or 0) + 8))
+				render(shownID, true)
 			end
 		end)
 	end

@@ -722,6 +722,12 @@ on("ENCOUNTER_END", function(id, name, diff, size, success)
 		push(s.bosses, { name = name, t = time(), inst = rt.run and rt.run.name or zoneName(),
 			sec = started and math.floor(now() - started) or nil }, LIMIT.bosses)
 		if rt.run then push(rt.run.bosses, name, 30) end
+		if name and LZ.Skin then
+			local sec = started and math.floor(now() - started) or nil
+			LZ.Skin.Banner({ title = T("Boss besiegt", "Boss defeated"), icon = "Interface\\Icons\\INV_Misc_Bone_Skull_01",
+				text = name .. (sec and sec > 0 and string.format("  ·  %d:%02d", math.floor(sec / 60), sec % 60) or ""),
+				sound = "UI_GARRISON_TOAST_MISSION_COMPLETE" })
+		end
 	else
 		s.wipes = s.wipes + 1
 		if rt.run then rt.run.wipes = rt.run.wipes + 1 end

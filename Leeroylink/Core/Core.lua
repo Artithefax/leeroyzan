@@ -4,7 +4,7 @@ local C = LZ.C
 
 _G.Leeroylink = LZ
 LZ.addon = ADDON
-LZ.version = C.GetMetadata(ADDON, "Version") or "0.7.0"
+LZ.version = C.GetMetadata(ADDON, "Version") or "0.8.0"
 LZ.schema = 1
 LZ.lang = (type(GetLocale) == "function" and GetLocale() == "deDE") and "de" or "en"
 LZ.modules, LZ.moduleList, LZ.commands, LZ.helpLines = {}, {}, {}, {}
@@ -410,6 +410,7 @@ function LZ:ShowHelp()
 	LZ:Print("  /lz  -  " .. T("Fenster öffnen/schließen", "open/close window"))
 	LZ:Print("  /lz module  |  /lz modul <Name> an|aus  -  " .. T("Module verwalten", "manage modules"))
 	LZ:Print("  /lz sprache de|en  |  /lz minimap an|aus  |  /lz reload")
+	LZ:Print("  /lz banner  -  " .. T("Einblendung testen", "test a banner") .. "  |  /lz ui  -  " .. T("verwendete Blizzard-Vorlagen", "Blizzard templates in use"))
 	for _, h in ipairs(LZ.helpLines) do
 		LZ:Print("  /lz " .. h.usage .. "  -  " .. T(h.de, h.en))
 	end

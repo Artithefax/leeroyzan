@@ -50,6 +50,13 @@ mod:Event("PLAYER_ENTERING_WORLD", function(self, _, isLogin)
 	if age and age > STALE_AFTER and #imp.updates > 0 then
 		parts[#parts + 1] = T("Daten sind älter als eine Woche – Leeroyzan starten", "data is over a week old – start Leeroyzan")
 	end
+	if #parts > 0 and LZ.Skin then
+		local text = table.concat(parts, " · ")
+		LZ.After(4, function()
+			LZ.Skin.Banner({ title = T("Neues von Leeroyzan", "News from Leeroyzan"), text = text, sound = "UI_BNET_TOAST",
+				onClick = function() if LZ.UI then LZ.UI:Show("Updates") end end })
+		end)
+	end
 	if #parts > 0 then
 		self:Print(table.concat(parts, " · "))
 		if #imp.updates > 0 then self:Print(T("Installieren im nächsten Start von Leeroyzan.", "Install them the next time you start Leeroyzan.")) end

@@ -1,84 +1,101 @@
--- UI.lua: main window (left navigation + scrollable text page + action buttons),
--- settings page with module switches, and the minimap button.
+-- UI.lua: the main window in the game's own look (portrait frame, tabs at the bottom, parchment pages),
+-- the settings page and the minimap button. Building blocks: Core/Skin.lua.
 local ADDON, LZ = ...
 local T, P = LZ.T, LZ.P
+local Skin = LZ.Skin
 
 local UI = {}
 LZ.UI = UI
 
-local TEMPLATE = _G.BackdropTemplateMixin and "BackdropTemplate" or nil
-local BACKDROP = {
-	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 16,
-	insets = { left = 4, right = 4, top = 4, bottom = 4 },
+local W, H, LIST_W = 760, 540, 170
+
+-- Tabs and the modules on them. Modules not listed here land on "Addons".
+local TABS = {
+	{ key = "overview", label = { "Übersicht", "Overview" } },
+	{ key = "session", label = { "Sitzung", "Session" }, mods = { "Session", "LootLog", "Screenshots" } },
+	{ key = "quests", label = { "Quests", "Quests" }, mods = { "QuestGuide", "Tasks", "Notes" } },
+	{ key = "chars", label = { "Charaktere", "Characters" }, mods = { "Alts", "Recipes", "Prices" } },
+	{ key = "addons", label = { "Addons", "Addons" }, mods = { "Updates", "ErrorLog", "LoadStatus", "Profiles", "Wishlist", "Memory" } },
+	{ key = "settings", label = { "Einstellungen", "Settings" }, mods = { "LeeroyMode", "Automation" } },
 }
-
-local NAV_W, CONTENT_W = 150, 420
-local pages, navButtons, actionButtons, settingsRows = {}, {}, {}, {}
-
-local function makeButton(parent, w, h, onClick)
-	local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-	b:SetSize(w, h)
-	b:SetScript("OnClick", onClick)
-	return b
+local tabOf = {}
+for i, tab in ipairs(TABS) do
+	for _, m in ipairs(tab.mods or {}) do tabOf[m] = i end
 end
 
-local function buildPages()
-	pages = { { key = "overview", label = function() return T("Übersicht", "Overview") end } }
+-- pages of a tab: { key, label, mod }
+local function tabPages(i)
+	local tab, out = TABS[i], {}
+	if tab.key == "settings" then out[1] = { key = "settings", label = T("Allgemein", "General") } end
 	for _, mod in ipairs(LZ.moduleList) do
-		if mod.Report then
-			pages[#pages + 1] = { key = mod.name, mod = mod, label = function() return P(mod.title) end }
+		if mod.Report and (tabOf[mod.name] or 5) == i then
+			out[#out + 1] = { key = mod.name, label = P(mod.title), mod = mod, off = not mod.enabled }
 		end
 	end
-	pages[#pages + 1] = { key = "settings", label = function() return T("Einstellungen", "Settings") end }
+	return out
 end
 
 ----------------------------------------------------------------------
--- Settings page
+-- Settings page (on parchment)
 ----------------------------------------------------------------------
+local settingsRows = {}
+
 local function buildSettings(parent)
-	local f = CreateFrame("Frame", nil, parent)
-	f:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
-	f:SetSize(CONTENT_W, 600)
+	local page = CreateFrame("Frame", nil, parent)
+	page:SetAllPoints()
+	Skin.Parchment(page)
+	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 14, -12)
+	scroll:SetPoint("BOTTOMRIGHT", -30, 10)
+	local f = CreateFrame("Frame", nil, scroll)
+	f:SetSize(420, 600)
+	scroll:SetScrollChild(f)
 	local y = -2
 
 	local function header(textFn)
-		local fs = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+		local fs = Skin.Text(f, "title")
 		fs:SetPoint("TOPLEFT", 0, y)
 		settingsRows[#settingsRows + 1] = { update = function() fs:SetText(textFn()) end }
-		y = y - 22
+		y = y - 26
 	end
 
 	local function checkbox(x, labelFn, getFn, setFn)
 		local cb = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
 		cb:SetPoint("TOPLEFT", x, y + 4)
 		cb:SetSize(24, 24)
-		local fs = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-		fs:SetWidth(CONTENT_W - x - 34)
-		fs:SetJustifyH("LEFT")
-		cb:SetScript("OnClick", function(self) setFn(self:GetChecked() and true or false) end)
-		settingsRows[#settingsRows + 1] = {
-			update = function() fs:SetText(labelFn()); cb:SetChecked(getFn()) end,
-		}
-		y = y - 24
+		local fs = Skin.Text(f)
+		fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+		fs:SetWidth(380 - x)
+		cb:SetScript("OnClick", function(self)
+			Skin.Sound(self:GetChecked() and "IG_MAINMENU_OPTION_CHECKBOX_ON" or "IG_MAINMENU_OPTION_CHECKBOX_OFF")
+			setFn(self:GetChecked() and true or false)
+			if UI.frame then UI:Refresh() end
+		end)
+		settingsRows[#settingsRows + 1] = { update = function() fs:SetText(labelFn()); cb:SetChecked(getFn()) end }
+		y = y - 26
 	end
 
-	-- language
 	header(function() return T("Sprache", "Language") end)
-	local de = makeButton(f, 80, 22, function() LZ.coreCommands["sprache"]("de") end)
+	local de = Skin.Button(f, "Deutsch", 90, function() LZ.coreCommands["sprache"]("de") end)
 	de:SetPoint("TOPLEFT", 0, y + 2)
-	de:SetText("Deutsch")
-	local en = makeButton(f, 80, 22, function() LZ.coreCommands["sprache"]("en") end)
+	local en = Skin.Button(f, "English", 90, function() LZ.coreCommands["sprache"]("en") end)
 	en:SetPoint("LEFT", de, "RIGHT", 6, 0)
-	en:SetText("English")
-	y = y - 30
+	y = y - 34
 
+	header(function() return T("Darstellung", "Display") end)
 	checkbox(0, function() return T("Minimap-Symbol anzeigen", "Show minimap button") end,
 		function() return not LZ.settings.minimap.hide end,
 		function(v) LZ.settings.minimap.hide = not v; UI:UpdateMinimap() end)
-	y = y - 6
+	checkbox(0, function() return T("Einblendungen oben im Bild (Updates, Fehler, Questreihen, Bosse)", "Banners at the top of the screen (updates, errors, quest chains, bosses)") end,
+		function() return Skin.UISettings().banners end,
+		function(v) Skin.UISettings().banners = v end)
+	checkbox(0, function() return T("Klänge beim Öffnen und für Einblendungen", "Sounds when opening and for banners") end,
+		function() return Skin.UISettings().sound end,
+		function(v) Skin.UISettings().sound = v end)
+	local test = Skin.Button(f, T("Einblendung testen", "Test banner"), 160, function() LZ.coreCommands["banner"]() end)
+	test:SetPoint("TOPLEFT", 28, y + 2)
+	settingsRows[#settingsRows + 1] = { update = function() test:SetText(T("Einblendung testen", "Test banner")) end }
+	y = y - 34
 
 	local groups = {
 		{ "link", function() return T("Verbindung zu Leeroyzan", "Leeroyzan link") end },
@@ -92,16 +109,56 @@ local function buildSettings(parent)
 					function() return mod.enabled end,
 					function(v) LZ:SetModuleEnabled(mod, v) end)
 				for _, o in ipairs(mod.options or {}) do
-					checkbox(24, function() return P(o.label) end,
+					checkbox(26, function() return Skin.OnParchment(LZ.Color("808080", P(o.label))) end,
 						function() return mod.opt[o.key] and true or false end,
 						function(v) mod.opt[o.key] = v end)
 				end
 			end
 		end
-		y = y - 6
+		y = y - 8
 	end
 	f:SetHeight(-y + 10)
-	return f
+	page.scroll, page.content = scroll, f
+	return page
+end
+
+----------------------------------------------------------------------
+-- Overview: what Leeroylink knows right now, grouped like the tabs
+----------------------------------------------------------------------
+local function overviewText()
+	local lines = {}
+	local imp = LZ.import
+	if imp then
+		lines[#lines + 1] = string.format(T("Daten von Leeroyzan: Stand %s · %d Updates", "Data from Leeroyzan: as of %s · %d updates"), LZ.Ago(imp.generated), #imp.updates)
+	else
+		lines[#lines + 1] = LZ.Color("808080", T("Noch keine Daten von Leeroyzan – Manager starten, dann /reload.", "No data from Leeroyzan yet – start the manager, then /reload."))
+	end
+	for i, tab in ipairs(TABS) do
+		if tab.mods then
+			local rows = {}
+			for _, mod in ipairs(LZ.moduleList) do
+				if (tabOf[mod.name] or 5) == i and (mod.Report or mod.Summary) then
+					local summary
+					if mod.enabled and mod.Summary then
+						local ok, s = pcall(mod.Summary, mod)
+						summary = ok and tostring(s) or "?"
+					elseif not mod.enabled then
+						summary = LZ.Color("808080", T("aus", "off"))
+					end
+					if summary and summary ~= "" then rows[#rows + 1] = LZ.Color("5a3a10", P(mod.title)) .. ":  " .. summary end
+				end
+			end
+			if #rows > 0 then
+				lines[#lines + 1] = ""
+				lines[#lines + 1] = LZ.Color("8a5a00", P(tab.label))
+				for _, r in ipairs(rows) do lines[#lines + 1] = "  " .. r end
+			end
+		end
+	end
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = LZ.Color("808080", T("Befehle: /lz hilfe · Minimap-Symbol: Linksklick Fenster, Rechtsklick Einstellungen",
+		"Commands: /lz help · Minimap button: left click window, right click settings"))
+	return table.concat(lines, "\n")
 end
 
 ----------------------------------------------------------------------
@@ -109,148 +166,121 @@ end
 ----------------------------------------------------------------------
 function UI:Build()
 	if self.frame then return end
-	buildPages()
-
-	local f = CreateFrame("Frame", "LeeroylinkFrame", UIParent, TEMPLATE)
-	f:SetSize(660, 520)
-	f:SetPoint("CENTER")
-	f:SetFrameStrata("DIALOG")
-	f:SetMovable(true)
-	f:EnableMouse(true)
-	f:RegisterForDrag("LeftButton")
-	f:SetScript("OnDragStart", function(s) s:StartMoving() end)
-	f:SetScript("OnDragStop", function(s) s:StopMovingOrSizing() end)
-	if f.SetBackdrop then
-		f:SetBackdrop(BACKDROP)
-		f:SetBackdropColor(0, 0, 0, 0.92)
-	end
-	f:Hide()
-	if _G.UISpecialFrames then table.insert(UISpecialFrames, "LeeroylinkFrame") end
+	local s = Skin.UISettings()
+	local f = Skin.Window("LeeroylinkFrame", "Leeroylink", W, H, {
+		pos = s.pos, save = function(p) s.pos = p end, strata = "HIGH",
+	})
 	self.frame = f
+	local body = f.body
 
-	local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	title:SetPoint("TOPLEFT", 16, -14)
-	title:SetText("Leeroylink  v" .. LZ.version)
-	self.title = title
-
-	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", -4, -4)
-
-	-- navigation
-	local y = -44
-	for i, page in ipairs(pages) do
-		local b = makeButton(f, NAV_W, 22, function() UI:Select(page.key) end)
-		b:SetPoint("TOPLEFT", 14, y)
-		navButtons[i] = b
-		y = y - 24
-	end
-
-	-- scrollable page
-	local scroll = CreateFrame("ScrollFrame", "LeeroylinkScroll", f, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", NAV_W + 28, -44)
-	scroll:SetPoint("BOTTOMRIGHT", -34, 48)
-	local content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(CONTENT_W, 10)
-	scroll:SetScrollChild(content)
-	self.scroll, self.content = scroll, content
-
-	local text = content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-	text:SetPoint("TOPLEFT", 0, 0)
-	text:SetWidth(CONTENT_W)
-	text:SetJustifyH("LEFT")
-	text:SetJustifyV("TOP")
-	self.text = text
-
-	self.settings = buildSettings(content)
+	-- left list (pages of the tab) and the page area
+	self.list = Skin.List(body, LIST_W, function(key) UI:Select(key) end)
+	local area = CreateFrame("Frame", nil, body)
+	area:SetPoint("TOPLEFT", LIST_W + 6, -4)
+	area:SetPoint("BOTTOMRIGHT", -4, 4)
+	self.area = area
+	self.page = Skin.ParchmentPage(area)
+	self.page.defaultWidth = W - LIST_W - 60
+	self.settings = buildSettings(area)
 	self.settings:Hide()
 
+	-- action buttons in the button bar at the bottom
+	self.actions = {}
 	for i = 1, 3 do
-		local b = makeButton(f, 140, 22, function() end)
-		b:SetPoint("BOTTOMLEFT", NAV_W + 28 + (i - 1) * 146, 16)
+		local b = Skin.Button(f, "", 150, function() end)
+		b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -8 - (i - 1) * 154, 4)
 		b:Hide()
-		actionButtons[i] = b
+		self.actions[i] = b
 	end
 
-	f:SetScript("OnShow", function() UI:Refresh() end)
+	local labels = {}
+	for i, tab in ipairs(TABS) do labels[i] = P(tab.label) end
+	self.tabButtons = Skin.Tabs(f, labels, function(i) UI:SelectTab(i) end)
+
+	f:HookScript("OnShow", function() UI:Refresh() end)
+	self.tab = self.tab or 1
 end
 
 function UI:Rebuild()
 	if not self.frame then return end
+	for i, tab in ipairs(self.tabButtons or {}) do
+		tab:SetText(P(TABS[i].label))
+		if _G.PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0) end
+	end
+	if self.frame.SetTitle then self.frame:SetTitle("Leeroylink") end
+	self:Refresh()
+end
+
+function UI:SelectTab(i)
+	self.tab = i
+	self.key = nil
 	self:Refresh()
 end
 
 function UI:Select(key)
-	self.page = key
-	if self.scroll and self.scroll.SetVerticalScroll then self.scroll:SetVerticalScroll(0) end
+	self.key = key
 	self:Refresh()
 end
 
-local function overviewText()
-	local lines = {}
-	lines[#lines + 1] = LZ.Color("ffd100", "Leeroylink v" .. LZ.version)
-	local imp = LZ.import
-	if imp then
-		lines[#lines + 1] = string.format(T("Leeroyzan-Daten: Stand %s, %d Updates", "Leeroyzan data: as of %s, %d updates"), LZ.Ago(imp.generated), #imp.updates)
-	else
-		lines[#lines + 1] = T("Leeroyzan-Daten: noch keine (Manager starten, synchronisieren, /reload)", "Leeroyzan data: none yet (start the manager, sync, /reload)")
-	end
-	lines[#lines + 1] = ""
-	for _, mod in ipairs(LZ.moduleList) do
-		local summary = ""
-		if mod.enabled and mod.Summary then
-			local ok, s = pcall(mod.Summary, mod)
-			summary = ok and tostring(s) or "?"
-		elseif not mod.enabled then
-			summary = LZ.Color("808080", T("aus", "off"))
-		end
-		lines[#lines + 1] = string.format("%s: %s", LZ.Color("ffffff", P(mod.title)), summary)
-	end
-	lines[#lines + 1] = ""
-	lines[#lines + 1] = T("Hilfe: /lz hilfe", "Help: /lz help")
-	return table.concat(lines, "\n")
+local function findTab(key)
+	if key == "overview" then return 1 end
+	if key == "settings" then return #TABS end
+	local mod = LZ.modules[key]
+	if mod then return tabOf[mod.name] or 5 end
+	return nil
 end
 
 function UI:Refresh()
 	local f = self.frame
 	if not f then return end
-	if not self.page then self.page = "overview" end
+	self.tab = self.tab or 1
+	f:SelectTab(self.tab)
+	local pages = tabPages(self.tab)
+	local tab = TABS[self.tab]
 
-	for i, page in ipairs(pages) do
-		navButtons[i]:SetText(page.label())
-		if page.key == self.page and navButtons[i].LockHighlight then navButtons[i]:LockHighlight()
-		elseif navButtons[i].UnlockHighlight then navButtons[i]:UnlockHighlight() end
+	-- overview: no list, the page uses the whole width
+	if tab.key == "overview" then
+		self.list:Hide()
+		self.area:SetPoint("TOPLEFT", 4, -4)
+		self.key = "overview"
+	else
+		self.list:Show()
+		self.area:SetPoint("TOPLEFT", LIST_W + 6, -4)
+		local valid = false
+		for _, p in ipairs(pages) do if p.key == self.key then valid = true end end
+		if not valid then self.key = pages[1] and pages[1].key end
+		self.list:SetItems(pages, self.key)
 	end
 
-	local acts = nil
-	local textValue = ""
-	if self.page == "settings" then
-		for _, row in ipairs(settingsRows) do row.update() end
-		self.text:SetText("")
+	local acts
+	if self.key == "settings" then
+		self.page:Hide()
 		self.settings:Show()
-		self.content:SetHeight(self.settings:GetHeight())
+		for _, row in ipairs(settingsRows) do row.update() end
 	else
 		self.settings:Hide()
-		local mod
-		for _, page in ipairs(pages) do if page.key == self.page then mod = page.mod end end
-		if not mod then
-			textValue = overviewText()
+		self.page:Show()
+		local mod = LZ.modules[self.key or ""]
+		if self.key == "overview" then
+			self.page:SetPage("Leeroylink  " .. LZ.Color("808080", "v" .. LZ.version), nil, overviewText())
+		elseif not mod then
+			self.page:SetPage(P(tab.label), nil, "")
 		elseif not mod.enabled then
-			textValue = LZ.Color("ff8080", T("Dieses Modul ist ausgeschaltet. Einschalten im Reiter Einstellungen.", "This module is off. Switch it on in the Settings tab."))
+			self.page:SetPage(P(mod.title), mod.desc and P(mod.desc),
+				LZ.Color("a02020", T("Dieses Modul ist ausgeschaltet. Einschalten unter Einstellungen.", "This module is off. Switch it on under Settings.")))
 		else
 			local ok, result = pcall(mod.Report, mod)
-			textValue = ok and tostring(result) or ("|cffff4040Error:|r " .. tostring(result))
-			if mod.desc then textValue = LZ.Color("a0a0a0", P(mod.desc)) .. "\n\n" .. textValue end
+			self.page:SetPage(P(mod.title), mod.desc and P(mod.desc), ok and tostring(result) or ("|cffff4040Error:|r " .. tostring(result)))
 			acts = mod.actions
 		end
-		self.text:SetText(textValue)
-		self.content:SetHeight(math.max(20, (self.text:GetStringHeight() or 0) + 12))
 	end
 
-	for i, b in ipairs(actionButtons) do
+	for i, b in ipairs(self.actions) do
 		local a = acts and acts[i]
 		if a then
 			b:SetText(P(a.label))
-			b:SetScript("OnClick", function() local mod = LZ.modules[self.page]; a.fn(mod) end)
+			local key = self.key
+			b:SetScript("OnClick", function() a.fn(LZ.modules[key]); UI:Refresh() end)
 			b:Show()
 		else
 			b:Hide()
@@ -260,7 +290,10 @@ end
 
 function UI:Show(key)
 	self:Build()
-	if key then self.page = key end
+	if key then
+		self.tab = findTab(key) or self.tab
+		self.key = key
+	end
 	self.frame:Show()
 	self:Refresh()
 end
@@ -271,7 +304,7 @@ function UI:Toggle()
 end
 
 ----------------------------------------------------------------------
--- Minimap button
+-- Minimap button: own icon in the round tracking border
 ----------------------------------------------------------------------
 local button
 
@@ -293,15 +326,24 @@ function UI:BuildMinimap()
 	button:RegisterForDrag("LeftButton")
 	button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-	local icon = button:CreateTexture(nil, "BACKGROUND")
-	icon:SetSize(20, 20)
-	icon:SetTexture("Interface\\Icons\\Ability_Warrior_Charge")
+	local back = button:CreateTexture(nil, "BACKGROUND")
+	back:SetSize(24, 24)
+	back:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+	back:SetPoint("CENTER", 0, 1)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetSize(22, 22)
 	icon:SetPoint("CENTER", 0, 1)
+	icon:SetTexture(Skin.ICON)
+	if not icon:GetTexture() then icon:SetTexture(Skin.ICON_FALLBACK) end
+	if icon.SetTexCoord then icon:SetTexCoord(0.06, 0.94, 0.06, 0.94) end
 	local border = button:CreateTexture(nil, "OVERLAY")
 	border:SetSize(53, 53)
 	border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 	border:SetPoint("TOPLEFT")
+	button.icon = icon
 
+	button:SetScript("OnMouseDown", function() icon:SetPoint("CENTER", 1, 0) end)
+	button:SetScript("OnMouseUp", function() icon:SetPoint("CENTER", 0, 1) end)
 	button:SetScript("OnClick", function(_, btn)
 		if btn == "RightButton" then
 			UI:Show("settings")
@@ -325,7 +367,7 @@ function UI:BuildMinimap()
 
 	button:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-		GameTooltip:AddLine("Leeroylink", 1, 0.5, 0)
+		GameTooltip:AddLine("Leeroylink", 1, 0.82, 0)
 		for _, mod in ipairs(LZ.moduleList) do
 			if mod.enabled and mod.TooltipLines then
 				local ok, lines = pcall(mod.TooltipLines, mod)

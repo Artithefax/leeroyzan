@@ -84,6 +84,11 @@ function mod:Record(msg, stack)
 	sessionByAddon[addon] = (seen or 0) + 1
 	if not seen and self.opt.notify then
 		LZ:Print(string.format(T("Fehler in %s – Details mit /lz fehler", "Error in %s – details with /lz errors"), LZ.Color("ff6060", addon)))
+		if LZ.Skin and addon ~= ADDON then
+			LZ.Skin.Banner({ title = string.format(T("Fehler in %s", "Error in %s"), addon), icon = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew",
+				text = T("Klicken für Details – Leeroyzan kann die vorige Version zurückholen.", "Click for details – Leeroyzan can bring back the previous version."),
+				sound = "UI_BNET_TOAST", onClick = function() if LZ.UI then LZ.UI:Show("ErrorLog") end end })
+		end
 	end
 end
 

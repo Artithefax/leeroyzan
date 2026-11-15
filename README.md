@@ -61,7 +61,7 @@ One window, no pop-ups. A sidebar with the game version, the pages and a big **P
 
 ## Play sessions (Leeroylink)
 
-Leeroyzan comes with its own companion addon, **Leeroylink** (folder `Leeroylink` in this repository, also attached to every release as `Leeroylink.zip`). Leeroyzan installs or updates it with one click on the **Leeroylink** page. Up to version 0.3.2 the addon was called *Leeroyzan Link* (folder `LeeroyzanLink`); Leeroyzan 1.5 switches it over with one click and keeps its data. In the game it records every session; after you log out, Leeroyzan imports it, keeps it and writes a summary:
+Leeroyzan comes with its own companion addon, **Leeroylink** (folder `Leeroylink` in this repository, also attached to every release as `Leeroylink.zip`). Leeroyzan installs or updates it with one click on the **Leeroylink** page. Up to version 0.3.2 the addon was called *Leeroyzan Link* (folder `LeeroyzanLink`); Leeroyzan 1.5 switches it over with one click and keeps its data. In the game it looks like one of the game's own windows (portrait frame, tabs, quest-log parchment) and shows banners for news, addon errors, completed quest chains and boss kills. It records every session; after you log out, Leeroyzan imports it, keeps it and writes a summary:
 
 - **Time and date:** start and end, play time, time in combat, AFK, resting, in instances, on flight paths, dead
 - **Experience and gold:** XP split into kills, quests and exploring, level-ups; gold start → end with income and expenses by source (loot, quests, vendor, mail, auction house, trainer, flight master, trade)
