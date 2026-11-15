@@ -3,6 +3,15 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.2.0
+
+### Discord
+- **Every new session is posted, not only the last one.** If several sessions were saved at once (two characters, or Leeroyzan was closed while you played), they are sent oldest first – at most the five newest, and never the same session twice.
+- **Milestones in the message:** visited dungeons and raids, discovered areas and **new personal records** of the character (most experience, biggest hit, longest session …; shown once a character has three earlier sessions). A level-up is marked in the title.
+- The message has the colour of the character's class.
+- **New: your Discord profile shows that you are playing** (Rich Presence, *Settings → Discord*, off by default). While WoW runs, Discord shows "Playing Leeroyzan – WoW Forever" with the time played and, if you like, the character played last with level and class. Leeroyzan talks to the Discord app on your PC directly – no bot, no token, nothing is sent by Leeroyzan over the internet. The status disappears when the game or Leeroyzan closes. Character and level are as fresh as the last time the game saved Leeroylink's data (logout or `/reload`).
+- If Discord asks to slow down (HTTP 429), Leeroyzan waits as long as Discord says and tries again. A deleted webhook is explained in plain words.
+
 ## 2.1.0
 
 ### New: Builds – talent planner and guides

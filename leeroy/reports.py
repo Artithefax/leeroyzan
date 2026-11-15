@@ -940,43 +940,118 @@ def chart_series(sessions: list[dict]) -> dict:
 
 # ----- Discord ---------------------------------------------------------------------- #
 DISCORD_WEBHOOK_RE = re.compile(r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+/?$")
+# Klassenfarben wie im Spiel – der Farbstreifen der Nachricht
+CLASS_COLORS = {"WARRIOR": 0xC69B6D, "PALADIN": 0xF48CBA, "HUNTER": 0xAAD372, "ROGUE": 0xFFF468, "PRIEST": 0xFFFFFF,
+                "SHAMAN": 0x0070DD, "MAGE": 0x3FC7EB, "WARLOCK": 0x8788EE, "DRUID": 0xFF7C0A, "DEATHKNIGHT": 0xC41E3A,
+                "MONK": 0x00FF98, "DEMONHUNTER": 0xA330C9, "EVOKER": 0x33937F}
+DISCORD_COLOR = 0xE6BB70
+DISCORD_RECORD_MIN = 3          # Rekorde erst melden, wenn es so viele frühere Sitzungen des Charakters gibt
+DISCORD_RETRIES = 2             # bei „zu viele Nachrichten“ (HTTP 429) so oft warten und wiederholen
+DISCORD_MAX_WAIT = 30           # … aber nie länger als so viele Sekunden am Stück
+_NO_RECORD = ("Meiste Tode",)   # kein Rekord, den man feiern möchte
 
 
-def discord_payload(s: dict) -> dict:
-    """Eine Sitzung als Discord-Nachricht (Embed)."""
+def new_records(s: dict, earlier: list[dict]) -> list[tuple[str, str]]:
+    """(Rekord, Wert): Bestwerte des Charakters, die diese Sitzung gegenüber seinen früheren aufgestellt hat."""
+    before = [e for e in earlier if e.get("char") == s["char"] and e.get("id") != s["id"]
+              and not e.get("legacy") and e.get("start", 0) < s["start"]]
+    if len(before) < DISCORD_RECORD_MIN:
+        return []
+    # s steht am Ende: Bei Gleichstand behält die frühere Sitzung den Rekord
+    return [(label, value) for label, value, holder in session_records(before + [s])
+            if holder is s and label not in _NO_RECORD]
+
+
+def _short_list(names, limit: int = 8) -> str:
+    names = list(dict.fromkeys(n for n in names if n))
+    more = len(names) - limit
+    return ", ".join(names[:limit]) + (tr(" und {0} weitere", more) if more > 0 else "")
+
+
+def discord_payload(s: dict, earlier: list[dict] | None = None) -> dict:
+    """Eine Sitzung als Discord-Nachricht (Embed). earlier = frühere Sitzungen, für neue Rekorde."""
     k, x = s["kills"], s["xp"]
     lv = s["level"]
-    fields = [(tr("Spielzeit"), fmt_dur(s["played"])),
-              (tr("Stufe"), f"{lv['from']} → {lv['to']}" if lv["to"] > lv["from"] > 0 else str(lv["to"] or "–")),
-              (tr("Erfahrung"), fmt_int(x["total"])),
-              (tr("Gold"), fmt_money(session_net_money(s), sign=True)),
-              (tr("Gegner"), fmt_int(k["n"]) + (f" ({tr('{0} Elite', k['elite'] + k['rareelite'])})" if k["elite"] + k["rareelite"] else "")),
-              (tr("Quests"), fmt_int(len(s["quests"]["done"]))),
-              (tr("Tode"), fmt_int(s["deathN"])),
-              (tr("Strecke"), fmt_dist(s["move"]["foot"] + s["move"]["ghost"] + s["move"]["mount"]))]
+    fields = [(tr("Spielzeit"), fmt_dur(s["played"]), True),
+              (tr("Stufe"), f"{lv['from']} → {lv['to']}" if lv["to"] > lv["from"] > 0 else str(lv["to"] or "–"), True),
+              (tr("Erfahrung"), fmt_int(x["total"]), True),
+              (tr("Gold"), fmt_money(session_net_money(s), sign=True), True),
+              (tr("Gegner"), fmt_int(k["n"]) + (f" ({tr('{0} Elite', k['elite'] + k['rareelite'])})" if k["elite"] + k["rareelite"] else ""), True),
+              (tr("Quests"), fmt_int(len(s["quests"]["done"])), True),
+              (tr("Tode"), fmt_int(s["deathN"]), True),
+              (tr("Strecke"), fmt_dist(s["move"]["foot"] + s["move"]["ghost"] + s["move"]["mount"]), True)]
     if s["bosses"]:
-        fields.append((tr("Bosse"), ", ".join(dict.fromkeys(b["name"] for b in s["bosses"]))[:1000]))
+        fields.append((tr("Bosse"), _short_list(b["name"] for b in s["bosses"]), True))
     best = max(s["loot"]["notable"], key=lambda e: (e["q"], e["t"]), default=None)
     if best and best["q"] >= 3:
-        fields.append((tr("Beste Beute"), f"[{best['name']}]"))
+        fields.append((tr("Beste Beute"), f"[{best['name']}]", True))
+    # Meilensteine: je eine eigene Zeile über die ganze Breite
+    if s["runs"]:
+        fields.append((tr("Instanzen"), _short_list(r["name"] for r in s["runs"]), False))
+    if s["explore"]["found"]:
+        fields.append((tr("Entdeckt"), _short_list(e["name"] for e in s["explore"]["found"]), False))
+    records = new_records(s, earlier or [])
+    if records:
+        fields.append((tr("Neue Rekorde"), "\n".join(f"🏆 {tr(label)}: {value}" for label, value in records), False))
     cls = tr(CLASS_NAMES.get(s["class"], s["class"].title())) if s["class"] else ""
+    title = f"{s['name'] or s['char']}{' · ' + cls if cls else ''} – {session_title(s)}"
+    if lv["to"] > lv["from"] > 0:
+        title = "⬆ " + title
     return {"username": "Leeroyzan", "embeds": [{
-        "title": f"{s['name'] or s['char']}{' · ' + cls if cls else ''} – {session_title(s)}"[:256],
+        "title": title[:256],
         "description": _summary_sentence(s)[:3500],
-        "color": 0xE6BB70,
-        "fields": [{"name": n, "value": v or "–", "inline": True} for n, v in fields][:25],
+        "color": CLASS_COLORS.get(s["class"], DISCORD_COLOR),
+        "fields": [{"name": n, "value": (v or "–")[:1024], "inline": inline} for n, v, inline in fields][:25],
         "footer": {"text": f"Leeroyzan {APP_VERSION} · Leeroylink"},
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(s["stop"])),
     }]}
 
 
-def discord_send(url: str, payload: dict) -> None:
+def _retry_after(e: urllib.error.HTTPError) -> float:
+    """Wartezeit, die Discord bei HTTP 429 nennt (Antworttext oder Kopfzeile), in Sekunden."""
+    try:
+        return float(json.loads(e.read().decode("utf-8", "replace")).get("retry_after"))
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    try:
+        return float(e.headers.get("Retry-After", ""))
+    except (ValueError, TypeError, AttributeError):
+        return 2.0
+
+
+def discord_send(url: str, payload: dict, sleep=time.sleep) -> None:
     if not DISCORD_WEBHOOK_RE.match(url.strip()):
         raise ValueError(tr("Das ist keine Discord-Webhook-Adresse."))
-    req = urllib.request.Request(url.strip(), data=json.dumps(payload).encode("utf-8"), method="POST",
-                                 headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            r.read()
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(tr("Discord hat abgelehnt (HTTP {0}).", e.code)) from None
+    data = json.dumps(payload).encode("utf-8")
+    for attempt in range(DISCORD_RETRIES + 1):
+        req = urllib.request.Request(url.strip(), data=data, method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                r.read()
+            return
+        except urllib.error.HTTPError as e:
+            wait = _retry_after(e) if e.code == 429 else None
+            if wait is None or attempt == DISCORD_RETRIES or wait > DISCORD_MAX_WAIT:
+                if e.code == 429:
+                    raise RuntimeError(tr("Discord nimmt gerade keine weiteren Nachrichten an – bitte später noch einmal senden.")) from None
+                if e.code in (401, 403, 404):
+                    raise RuntimeError(tr("Discord kennt diesen Webhook nicht mehr (HTTP {0}) – bitte in den Einstellungen "
+                                          "eine neue Adresse eintragen.", e.code)) from None
+                raise RuntimeError(tr("Discord hat abgelehnt (HTTP {0}).", e.code)) from None
+            sleep(max(0.0, wait) + 0.25)
+
+
+def discord_send_sessions(url: str, sessions: list[dict], earlier: list[dict], sleep=time.sleep) -> tuple[list[str], Exception | None]:
+    """Mehrere Sitzungen der Reihe nach senden (älteste zuerst).
+    Gibt (IDs der gesendeten Sitzungen, Fehler oder None) zurück – nach einem Fehler wird nicht weitergesendet."""
+    sent: list[str] = []
+    for s in sorted(sessions, key=lambda s: s["start"]):
+        try:
+            if sent:
+                sleep(1.0)          # Discord erlaubt nur wenige Nachrichten pro Sekunde
+            discord_send(url, discord_payload(s, earlier), sleep=sleep)
+        except (OSError, ValueError, RuntimeError) as e:
+            return sent, e
+        sent.append(s["id"])
+    return sent, None
