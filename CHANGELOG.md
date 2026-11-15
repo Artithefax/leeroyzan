@@ -3,7 +3,7 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
-## Unreleased
+## 2.2.2
 
 ### Wowhead: much more in the preview
 - Besides the tooltip, the preview now shows what the Wowhead page knows: **quick facts** (price, level, classification, start and end of a quest, patch …) and **where it comes from or what it is for** – *dropped by* (with drop chance, level and zone), *sold by* (with price), *reward from*, *contained in*, *reagent for*, *objective of*, an NPC's *loot* and *abilities*, what a node *yields*, and more. Up to five entries per list, sorted by drop chance; chances from very few observations are marked and come last.
