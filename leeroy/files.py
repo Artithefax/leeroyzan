@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from datetime import datetime
@@ -532,3 +533,66 @@ def open_in_explorer(path: Path) -> None:
         subprocess.Popen(["open", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path)])
+
+
+# --------------------------------------------------------------------------- #
+# Mehrere Updates: erst alles laden, dann nacheinander installieren
+# --------------------------------------------------------------------------- #
+DOWNLOAD_WORKERS = 4
+
+
+def download_then_install(plan: list, download, install, progress=None, workers: int = DOWNLOAD_WORKERS,
+                          manual_exc: type = ()) -> tuple[list, list, list]:
+    """plan: [(Quellen-ID, Info, Datei)]. Lädt zuerst alle Dateien (mehrere gleichzeitig) und installiert sie
+    dann nacheinander in der Reihenfolge des Plans – ein langsamer oder fehlerhafter Download hält die anderen
+    nicht auf, und installiert wird erst, wenn alles da ist.
+    download(sid, info, asset) -> Pfad einer temporären ZIP (wird danach gelöscht)
+    install(sid, info, asset, pfad) -> installierte Ordner
+    progress(text) wird im Arbeitsthread aufgerufen. manual_exc: Ausnahmen, die „nur im Browser“ bedeuten.
+    Gibt (ok [(sid, info, asset, ordner)], manual [(info, asset, ausnahme)], errors [(sid, info, ausnahme)]) zurück."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    say = progress or (lambda text: None)
+    paths: dict[int, Path] = {}
+    manual, errors, ok = [], [], []
+    done = [0]
+    lock = threading.Lock()
+
+    def fetch(i):
+        sid, info, asset = plan[i]
+        try:
+            return i, download(sid, info, asset), None
+        except Exception as e:  # noqa – ausgewertet unten
+            return i, None, e
+        finally:
+            with lock:
+                done[0] += 1
+                say(tr("Lade {0} von {1} …", done[0], len(plan)))
+
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(plan) or 1))) as pool:
+            for i, path, err in pool.map(fetch, range(len(plan))):
+                sid, info, asset = plan[i]
+                if path is not None:
+                    paths[i] = path
+                elif manual_exc and isinstance(err, manual_exc):
+                    manual.append((info, asset, err))
+                else:
+                    log.error("Download %s: %s", sid, err)
+                    errors.append((sid, info, err))
+        todo = sorted(paths)
+        for n, i in enumerate(todo, 1):
+            sid, info, asset = plan[i]
+            say(tr("Installiere {0} von {1}: {2} …", n, len(todo), info.get("repo") or sid))
+            try:
+                ok.append((sid, info, asset, install(sid, info, asset, paths[i])))
+            except Exception as e:  # noqa – ein kaputtes Archiv hält die anderen nicht auf
+                log.error("Installation %s: %s", sid, e)
+                errors.append((sid, info, e))
+    finally:
+        for p in paths.values():
+            try:
+                Path(p).unlink(missing_ok=True)
+            except OSError:
+                pass
+    return ok, manual, errors

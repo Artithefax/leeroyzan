@@ -11,7 +11,7 @@ from ..config import log, save_config
 from ..wow import running_wow
 from ..files import install_zip
 from ..github import asset_key
-from ..curseforge import CF_PREFIX, download_matches, zip_name_matches
+from ..curseforge import CF_PREFIX, cf_download_url, download_matches, zip_name_matches
 from .theme import UPD_MARK
 
 
@@ -20,6 +20,75 @@ class DownloadsMixin:
 
     # ----- Browser-Downloads automatisch einspielen ----------------------- #
     DL_POLL_MS = 2000
+
+    # Kette: die Download-Seiten nacheinander öffnen (Browser fragen oft vor jedem Speichern nach)
+    def _chain_pending(self) -> list[str]:
+        self.dl_chain[:] = [s for s in self.dl_chain if s in self.dl_watch]
+        if not self.dl_chain:
+            self.dl_opened.clear()
+            self.dl_chain_total = 0
+        return self.dl_chain
+
+    def chain_open_next(self, skip: bool = False):
+        """Öffnet die nächste noch nicht geöffnete Download-Seite. skip=True: die aktuelle nicht abwarten."""
+        pending = self._chain_pending()
+        if not pending:
+            return
+        waiting_on = [s for s in pending if s in self.dl_opened]
+        if waiting_on and not skip:
+            self._chain_notice(waiting_on[0])          # erst die geöffnete Seite abwarten
+            return
+        nxt = next((s for s in pending if s not in self.dl_opened), None)
+        if nxt is None:
+            self._chain_notice(waiting_on[0] if waiting_on else pending[0])
+            return
+        w = self.dl_watch[nxt]
+        self.dl_opened.add(nxt)
+        self.open_link(cf_download_url(w["info"], w["asset"]))
+        self._chain_notice(nxt)
+
+    def chain_open_all(self):
+        for sid in self._chain_pending():
+            if sid not in self.dl_opened:
+                w = self.dl_watch[sid]
+                self.dl_opened.add(sid)
+                self.open_link(cf_download_url(w["info"], w["asset"]))
+        self._chain_notice(None)
+
+    def _chain_notice(self, sid):
+        pending = self._chain_pending()
+        if not pending:
+            return
+        total = max(self.dl_chain_total, len(pending))
+        pos = total - len(pending) + 1
+        names = ", ".join(self.dl_watch[s]["info"].get("repo") or s for s in pending[:4]) + (" …" if len(pending) > 4 else "")
+        if sid is None:
+            head = tr("Alle {0} Download-Seiten sind offen. Klicke in jedem Tab auf den Download.", len(pending))
+        else:
+            name = self.dl_watch[sid]["info"].get("repo") or sid
+            head = tr("Datei {0} von {1}: {2} – klicke im Browser auf den Download.", pos, total, name)
+            if self.dl_chain_intro and pos == 1:
+                head = self.dl_chain_intro + " " + head
+        text = (head + " " + tr("Liegt die Datei in {0}, installiert Leeroyzan sie und öffnet die nächste Seite. Fragt dein Browser, "
+                                "wohin gespeichert werden soll, wähle diesen Ordner.", self.download_dir())
+                + ("\n" + tr("Noch offen: {0}", names) if len(pending) > 1 else ""))
+        acts = []
+        if len(pending) > 1 and any(s not in self.dl_opened for s in pending):
+            acts += [(tr("Nächste Seite"), lambda: self.chain_open_next(skip=True)), (tr("Alle Seiten öffnen"), self.chain_open_all)]
+        acts.append((tr("Zur Liste"), lambda: self.show_page("updates")))
+        self.notify(text, "warn", acts, key="browser")
+
+    def _chain_after(self, sid: str):
+        """Eine Datei ist da (oder wird nicht mehr erwartet): weiter mit der nächsten Seite."""
+        if sid in self.dl_chain:
+            self.dl_chain.remove(sid)
+        self.dl_opened.discard(sid)
+        if self._chain_pending():
+            self.chain_open_next()
+        else:
+            self.dl_chain_total = 0
+            if "browser" in self.banners:
+                self.dismiss("browser")
 
     def watch_download(self, sid: str, since: float | None = None, info: dict | None = None,
                        asset: dict | None = None, manual: bool = False):
@@ -49,6 +118,8 @@ class DownloadsMixin:
                     or (not src and not w.get("new"))):
                 del self.dl_watch[sid]
                 changed = changed or w.get("manual")
+                if sid in self.dl_chain:
+                    self.after_idle(lambda s=sid: self._chain_after(s))
         if changed:
             self.refresh_browser_list()
         if not self.dl_watch:
@@ -106,6 +177,7 @@ class DownloadsMixin:
                         timeout=12000)
             self.refresh_browser_list()
             self.install_dependencies([asset])
+            self._chain_after(sid)
 
         def failed(err):
             self._dl_checked[str(path)] = self._dl_seen.get(str(path))

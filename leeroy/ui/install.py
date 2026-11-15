@@ -98,18 +98,19 @@ class InstallMixin:
         return self.cf_key()
 
     def run_download_queue(self, items: list[dict], intro: str):
-        """Gesperrte Addons: Download-Seite öffnen und im Hintergrund auf die Datei warten (kein Fenster)."""
+        """Gesperrte Addons: Leeroyzan wartet im Hintergrund auf jede Datei und öffnet die Download-Seiten der Reihe
+        nach – die nächste, sobald die vorige angekommen und installiert ist (kein Fenster)."""
         if not items:
             return
         for it in items:
-            self.watch_download(CF_PREFIX + str(it["info"]["mod_id"]), info=it["info"], asset=it["asset"],
-                                manual=True)
-        self.open_link(items[0]["page"])
-        names = ", ".join(i["name"] for i in items[:4]) + (" …" if len(items) > 4 else "")
-        more = tr(" Die übrigen Download-Seiten findest du unter „Updates“.") if len(items) > 1 else ""
-        self.notify(tr("{0} {1}. Klicke im Browser auf den Download – sobald die Datei in {2} liegt, installiert Leeroyzan sie automatisch.{3}", intro, names, self.download_dir(), more), "warn",
-                    [(tr("Zur Liste"), lambda: self.show_page("updates"))], key="browser")
+            sid = CF_PREFIX + str(it["info"]["mod_id"])
+            self.watch_download(sid, info=it["info"], asset=it["asset"], manual=True)
+            if sid not in self.dl_chain:
+                self.dl_chain.append(sid)
+                self.dl_chain_total += 1
+        self.dl_chain_intro = intro
         self.refresh_browser_list()
+        self.chain_open_next()
 
     def _adopt_cf(self, sid: str, asset: dict):
         src = self.sources()[sid]

@@ -11,14 +11,14 @@ from ..constants import APP_VERSION
 from ..i18n import tr
 from ..config import log, save_config
 from ..wow import running_wow
-from ..files import backup_wtf, read_rollback, restore_rollback
-from ..github import GH_CACHE_MAX_AGE, choose_asset, github_install_asset, github_latest
+from ..files import backup_wtf, download_then_install, install_zip, read_rollback, restore_rollback
+from ..github import GH_CACHE_MAX_AGE, choose_asset, github_download_asset, github_latest
 from ..curseforge import (
     CF_PREFIX,
     ManualDownload,
     cf_changelog,
     cf_check,
-    cf_install_asset,
+    cf_download_asset,
     cf_match_installed,
     cf_mods_batch,
     cf_queue_item,
@@ -311,25 +311,25 @@ class UpdatesPage:
                     log.info("Auto-Backup: %s", backup_wtf(root, flavor, "auto"))
                 except FileNotFoundError:
                     pass
-            ok, manual, errors = [], [], []
-            for r, info, asset in plan:
-                try:
-                    keep = (r, before[r])         # alte Fassung für „Rückgängig“ (verschoben, nicht kopiert)
-                    if r.startswith(CF_PREFIX):
-                        folders = cf_install_asset(asset, info, root, flavor, cf_key, rollback=keep)
-                        if not info.get("notes") and asset.get("file_id"):
-                            try:          # Changelog für Leeroylink (Anzeige im Spiel)
-                                info["notes"] = cf_changelog(asset.get("mod_id") or info.get("mod_id"), asset["file_id"], cf_key)
-                            except Exception:  # noqa – nur ein Extra
-                                pass
-                    else:
-                        folders = github_install_asset(asset, root, flavor, token, rollback=keep)
-                    ok.append((r, info, asset, folders))
-                except ManualDownload as m:
-                    manual.append((info, asset, m))
-                except Exception as e:  # noqa
-                    log.error("Update %s: %s", r, e)
-                    errors.append(f"{info.get('repo', r)}: {e}")
+            def download(r, info, asset):
+                if r.startswith(CF_PREFIX):
+                    return cf_download_asset(asset, info, cf_key)
+                return github_download_asset(asset, token)
+
+            def install(r, info, asset, path):
+                folders = install_zip(path, root, flavor, rollback=(r, before[r]))   # alte Fassung für „Rückgängig“
+                if r.startswith(CF_PREFIX) and not info.get("notes") and asset.get("file_id"):
+                    try:          # Changelog für Leeroylink (Anzeige im Spiel)
+                        info["notes"] = cf_changelog(asset.get("mod_id") or info.get("mod_id"), asset["file_id"], cf_key)
+                    except Exception:  # noqa – nur ein Extra
+                        pass
+                return folders
+
+            def progress(text):          # aus dem Arbeitsthread: über die Warteschlange in die Statuszeile
+                self.quiet_jobs.put((lambda res, err, t=text: self.set_status(t), None, None))
+
+            ok, manual, errs = download_then_install(plan, download, install, progress, manual_exc=ManualDownload)
+            errors = [f"{info.get('repo', r)}: {e}" for r, info, e in errs]
             return ok, manual, errors
 
         def done(out):

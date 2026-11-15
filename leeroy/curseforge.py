@@ -369,6 +369,16 @@ def cf_check(src: dict, key: str, flavor: str, game_ver: str) -> dict:
 
 def cf_install_asset(asset: dict, info: dict, root: str, flavor: str, key: str,
                      rollback: tuple[str, dict] | None = None) -> list[str]:
+    tmp_path = cf_download_asset(asset, info, key)
+    try:
+        return install_zip(tmp_path, root, flavor, rollback=rollback)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def cf_download_asset(asset: dict, info: dict, key: str) -> Path:
+    """Lädt die Datei in eine temporäre ZIP (Prüfsumme geprüft). Wer sie bekommt, löscht sie wieder.
+    ManualDownload, wenn der Autor Downloads über Programme sperrt."""
     page = info.get("page", "").rstrip("/") + "/files"
     if not info.get("allow_dl", True):
         raise ManualDownload(page, tr("Der Autor erlaubt keinen Download über Programme wie diesen."))
@@ -390,11 +400,7 @@ def cf_install_asset(asset: dict, info: dict, root: str, flavor: str, key: str,
         raise CFError(tr("Prüfsumme der heruntergeladenen Datei stimmt nicht – Abbruch."))
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         tmp.write(blob)
-        tmp_path = Path(tmp.name)
-    try:
-        return install_zip(tmp_path, root, flavor, rollback=rollback)
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        return Path(tmp.name)
 
 
 def cf_pack_item(src: dict, key: str, flavor: str, game_ver: str) -> dict:

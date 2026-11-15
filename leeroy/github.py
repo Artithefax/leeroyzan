@@ -189,12 +189,17 @@ def choose_asset(info: dict, flavor: str, key: str = "") -> dict | None:
     return None
 
 
-def github_install_asset(asset: dict, root: str, flavor: str, token: str = "",
-                         rollback: tuple[str, dict] | None = None) -> list[str]:
+def github_download_asset(asset: dict, token: str = "") -> Path:
+    """Lädt die Release-Datei in eine temporäre ZIP. Wer sie bekommt, löscht sie wieder."""
     blob = http_get(asset["url"], token, accept="application/octet-stream")
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         tmp.write(blob)
-        tmp_path = Path(tmp.name)
+        return Path(tmp.name)
+
+
+def github_install_asset(asset: dict, root: str, flavor: str, token: str = "",
+                         rollback: tuple[str, dict] | None = None) -> list[str]:
+    tmp_path = github_download_asset(asset, token)
     try:
         return install_zip(tmp_path, root, flavor, rollback=rollback)
     finally:
