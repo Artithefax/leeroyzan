@@ -67,24 +67,82 @@ local function inkHex(r, g, b)
 end
 Skin.INK_HEX, Skin.TITLE_HEX = inkHex(INK[1], INK[2], INK[3]), inkHex(TITLE[1], TITLE[2], TITLE[3])
 
--- |cffRRGGBB codes made for a black background are darkened until they read well on parchment;
--- greys and white become ink, colours keep their hue (gold -> brown, green -> dark green ...).
+-- Colour codes made for a black background are darkened until they read well on parchment:
+-- greys and white become ink, gold/yellow becomes the brown of quest titles, other colours keep their
+-- hue at a much lower brightness (green -> dark green, blue -> dark blue ...). Besides |cffRRGGBB this also
+-- handles the named colours of newer clients, as in item links: |cnIQ2:[Name]|r, |cnGREEN_FONT_COLOR:...|r.
+local QUALITY_HEX = { [0] = "9d9d9d", "ffffff", "1eff00", "0070dd", "a335ee", "ff8000", "e6cc80", "00ccff", "00ccff" }
+local PARCHMENT_LUM = 0.24
+
+local function onParchmentRGB(r, g, b)
+	local hi, lo = math.max(r, g, b), math.min(r, g, b)
+	if hi - lo < 0.12 then                                      -- grey/white: ink, mid grey a lighter ink
+		local k = hi < 0.7 and 0.55 or 0
+		return INK[1] + (0.45 - INK[1]) * k, INK[2] + (0.40 - INK[2]) * k, INK[3] + (0.35 - INK[3]) * k
+	end
+	if r >= 0.7 and g >= 0.7 * r and b <= 0.45 then             -- gold and yellow (headings): quest-title brown
+		return TITLE[1], TITLE[2], TITLE[3]
+	end
+	local lum = 0.299 * r + 0.587 * g + 0.114 * b
+	if lum > PARCHMENT_LUM then
+		local f = PARCHMENT_LUM / lum
+		r, g, b = r * f, g * f, b * f
+	end
+	return r, g, b
+end
+
+local function hexRGB(hex)
+	return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255
+end
+
+local function namedHex(name)
+	local q = tonumber(name:match("^IQ(%d+)$"))
+	if q then
+		local c = _G.ITEM_QUALITY_COLORS and _G.ITEM_QUALITY_COLORS[q]
+		if type(c) == "table" and c.r then return inkHex(c.r, c.g, c.b) end
+		return QUALITY_HEX[q] or "ffffff"
+	end
+	local c = _G[name]
+	if type(c) == "table" and c.GenerateHexColor then
+		local ok, hex = pcall(c.GenerateHexColor, c)
+		if ok and type(hex) == "string" and #hex >= 6 then return hex:sub(-6) end
+	end
+	return "ffffff"
+end
+
+function Skin.ParchmentHex(hex)
+	return inkHex(onParchmentRGB(hexRGB(hex)))
+end
+
 function Skin.OnParchment(text)
 	if type(text) ~= "string" then return text end
-	return (text:gsub("|c(%x%x)(%x%x)(%x%x)(%x%x)", function(a, rh, gh, bh)
-		local r, g, b = tonumber(rh, 16) / 255, tonumber(gh, 16) / 255, tonumber(bh, 16) / 255
-		local hi, lo = math.max(r, g, b), math.min(r, g, b)
-		if hi - lo < 0.12 then                                  -- grey/white: ink, lighter grey stays a bit lighter
-			local k = hi < 0.6 and 0.55 or 0
-			return "|c" .. a .. inkHex(INK[1] + (0.45 - INK[1]) * k, INK[2] + (0.40 - INK[2]) * k, INK[3] + (0.35 - INK[3]) * k)
-		end
-		local lum = 0.299 * r + 0.587 * g + 0.114 * b
-		if lum > 0.38 then
-			local f = 0.38 / lum
-			r, g, b = r * f, g * f, b * f
-		end
-		return "|c" .. a .. inkHex(r, g, b)
-	end))
+	text = text:gsub("|cn([%w_]+):", function(name) return "|cff" .. Skin.ParchmentHex(namedHex(name)) end)
+	return (text:gsub("|c(%x%x)(%x%x%x%x%x%x)", function(a, hex) return "|c" .. a .. Skin.ParchmentHex(hex) end))
+end
+
+-- A scroll frame with the game's thin scroll bar (ScrollFrameTemplate + MinimalScrollBar), the bar just
+-- inside the right edge; the old UIPanelScrollFrameTemplate only if the new one is missing.
+function Skin.Scroll(parent, left, top, right, bottom)
+	local scroll = try("ScrollFrame", nil, parent, "ScrollFrameTemplate")
+	local bar = scroll and rawget(scroll, "ScrollBar")
+	if scroll and type(bar) == "table" then
+		Skin.used.scroll = "MinimalScrollBar"
+		scroll:SetPoint("TOPLEFT", left, top)
+		scroll:SetPoint("BOTTOMRIGHT", right - 14, bottom)
+		bar:ClearAllPoints()
+		bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, -2)
+		bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 2)
+		if bar.SetHideIfUnscrollable then pcall(bar.SetHideIfUnscrollable, bar, true) end
+	else
+		Skin.used.scroll = "UIPanelScrollFrameTemplate"
+		scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+		scroll:SetPoint("TOPLEFT", left, top)
+		scroll:SetPoint("BOTTOMRIGHT", right - 22, bottom)
+	end
+	local content = CreateFrame("Frame", nil, scroll)
+	content:SetSize(10, 10)
+	scroll:SetScrollChild(content)
+	return scroll, content
 end
 
 ----------------------------------------------------------------------
@@ -202,12 +260,7 @@ function Skin.ParchmentPage(parent)
 	local page = CreateFrame("Frame", nil, parent)
 	page:SetAllPoints()
 	Skin.Parchment(page)
-	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 14, -12)
-	scroll:SetPoint("BOTTOMRIGHT", -30, 10)
-	local content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(10, 10)
-	scroll:SetScrollChild(content)
+	local scroll, content = Skin.Scroll(page, 18, -14, -8, 12)
 	local title = Skin.Text(content, "title")
 	title:SetPoint("TOPLEFT", 0, -2)
 	local desc = Skin.Text(content, "small")

@@ -5,7 +5,12 @@ The section of a version becomes the text of its GitHub release automatically
 
 
 
-## Unreleased
+## 2.2.4
+
+### Leeroylink 0.8.1: better contrast on parchment
+- **Item names were bright green and blue on the parchment.** Item links in WoW Forever name their colour by item quality (a newer format) – Leeroylink now darkens those as well. All colours are noticeably darker on parchment; gold headings (*Overview*, *Latest* …) use the brown of quest titles, poor items a lighter ink.
+- **The game's thin scroll bar** next to the pages instead of the old one with round buttons on the parchment.
+- The strip under the window title shows the state of the data from Leeroyzan.
 
 ### Updating several addons
 - **First everything is downloaded, then installed one after another.** Leeroyzan now downloads all updates first (four at a time) and installs them afterwards in order, with progress in the status bar ("Downloading 3 of 8 …", "Installing 2 of 8: Questie …"). A failed download or a broken archive no longer holds up the others.
