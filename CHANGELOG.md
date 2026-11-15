@@ -3,8 +3,6 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
-
-
 ## 2.2.4
 
 ### Leeroylink 0.8.1: better contrast on parchment
