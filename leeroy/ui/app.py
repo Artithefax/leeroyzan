@@ -22,6 +22,7 @@ from .updates import UpdatesPage
 from .share import SharePage
 from .sets import SetsPage
 from .sessions import SessionsPage
+from .worldmap import MapPage
 from .discordshare import DiscordSharePage
 from .linkdata import LinkDataMixin
 from .diagnose import DiagnosePage
@@ -37,7 +38,7 @@ from .install import InstallMixin
 from .selfupdate import SelfUpdateMixin
 
 
-class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, UpdatesPage, SharePage, SetsPage, SessionsPage, DiscordSharePage, LinkDataMixin, DiagnosePage, CharactersPage, QuestsPage, AuctionPage, BuildsPage, WowheadPage, SettingsPage, CommonMixin, DownloadsMixin, InstallMixin, SelfUpdateMixin, BaseTk):
+class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, UpdatesPage, SharePage, SetsPage, SessionsPage, MapPage, DiscordSharePage, LinkDataMixin, DiagnosePage, CharactersPage, QuestsPage, AuctionPage, BuildsPage, WowheadPage, SettingsPage, CommonMixin, DownloadsMixin, InstallMixin, SelfUpdateMixin, BaseTk):
     COLUMNS = ("status", "name", "title", "version", "interface", "source", "update")
     current_page = "addons"
     UPDATE_MODES = {"auto": "Automatisch installieren", "ask": "Nur nachfragen", "off": "Aus"}

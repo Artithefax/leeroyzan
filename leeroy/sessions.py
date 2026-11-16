@@ -161,6 +161,41 @@ def _norm_runs(raw) -> list:
         for x in _list(raw)]
 
 
+_ROUTE_RX = re.compile(r"^\d+,\d+,\d+(?:;\d+,\d+,\d+)*$")
+_PIN_TEXT = ("name", "by", "spell", "inst", "g", "c")
+_PIN_INT = ("id", "lvl", "l", "q", "xp")
+
+
+def _norm_map(raw) -> dict:
+    """Wege und Orte (Leeroylink 0.9): Abschnitte bleiben als kompakter Text „x,y,s;…“ (0–10000 je Achse,
+    Sekunden seit dem Punkt davor) – die Karte zerlegt sie erst beim Zeichnen."""
+    m = _map(raw)
+    segs = []
+    for sg in _list(m.get("segs")):
+        sg = _map(sg)
+        d = _text(sg.get("d"))
+        if _int(sg.get("m")) > 0 and _int(sg.get("t")) > 0 and d and _ROUTE_RX.match(d):
+            segs.append({"m": _int(sg.get("m")), "k": _text(sg.get("k")), "t": _int(sg.get("t")), "d": d})
+    pins = []
+    for e in _list(m.get("pins")):
+        e = _map(e)
+        k, mid, t = _text(e.get("k")), _int(e.get("m")), _int(e.get("t"))
+        if not k or mid <= 0 or t <= 0:
+            continue
+        pin = {"k": k, "m": mid, "t": t}
+        if e.get("x") is not None and e.get("y") is not None:
+            pin["x"] = round(min(10000, max(0, _num(e.get("x")))) / 100, 2)
+            pin["y"] = round(min(10000, max(0, _num(e.get("y")))) / 100, 2)
+        for key in _PIN_TEXT:
+            if _text(e.get(key)):
+                pin[key] = _text(e.get(key))
+        for key in _PIN_INT:
+            if _int(e.get(key)):
+                pin[key] = _int(e.get(key))
+        pins.append(pin)
+    return {"segs": segs, "pins": pins, "n": _int(m.get("n")), "trimmed": bool(m.get("trimmed"))}
+
+
 def _session_fixups(s: dict) -> None:
     """Werte, die ältere Leeroylink-Versionen oder geschützte Chatzeilen nicht liefern, ergänzen."""
     # Kill-XP: Neuere Clients schützen die Chatzeile im Kampf – dann zählt die XP, die im Kampf kam (Link 0.3.1)
@@ -220,6 +255,7 @@ def normalize_session(raw, flavor: str = "", account: str = "") -> dict | None:
         "explore": _norm_explore(ex),
         "runs": _norm_runs(r.get("runs")),
         "rep": _counts(r.get("rep")),
+        "map": _norm_map(r.get("map")),
         "xpNow": _int(r.get("xpNow")), "xpMax": _int(r.get("xpMax")),
         "legacy": False,
     }

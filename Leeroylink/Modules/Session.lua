@@ -246,6 +246,7 @@ on("PLAYER_LEVEL_UP", function(level)
 	level = tonumber(level) or playerLevel()
 	push(s.level.ups, { l = level, t = time() }, LIMIT.levelUps)
 	s.level.to = level
+	if I.mark then I.mark("level", { l = level }) end
 end)
 
 on("CHAT_MSG_COMBAT_XP_GAIN", function(msg)
@@ -372,6 +373,7 @@ on("QUEST_ACCEPTED", function(a, b)
 	title = title or questTitle(questID)
 	if title then rt.qtitle[questID] = title end
 	push(s.quests.accepted, { id = questID, title = title, lvl = level, t = time() }, LIMIT.accepted)
+	if I.mark then I.mark("qa", { id = questID, name = title }) end
 end)
 
 -- The reward window knows the title for sure.
@@ -385,6 +387,7 @@ on("QUEST_TURNED_IN", function(questID, xp, cash)
 	questID = tonumber(questID)
 	local e = { id = questID, title = questTitle(questID), xp = tonumber(xp), money = tonumber(cash), t = time(), zone = zoneName() }
 	push(s.quests.done, e, LIMIT.done)
+	if I.mark then I.mark("qd", { id = questID, name = e.title }) end
 	rt.questAt = now()
 	if e.xp then
 		s.xp.quests = s.xp.quests + e.xp
@@ -475,7 +478,8 @@ on("CHAT_MSG_LOOT", function(msg)
 	local gk = (kind == "loot") and lootKind() or nil
 	if gk and gk ~= "mob" then
 		s.prof.gathered[gk] = s.prof.gathered[gk] or {}
-		bookItem(s.prof.gathered[gk], id, link, count)
+		local g = bookItem(s.prof.gathered[gk], id, link, count)
+		if I.mark then I.mark("gather", { g = gk, id = id, name = g.name }) end
 	end
 
 	local L = s.loot
@@ -492,6 +496,9 @@ on("CHAT_MSG_LOOT", function(msg)
 		local boss = rt.lastBoss and (now() - rt.lastBoss.at) < 120 and rt.lastBoss.name or nil
 		push(L.notable, { id = id, name = e.name, q = q, n = count, t = time(), zone = zoneName(),
 			src = (kind == "pushed") and "quest" or (gk ~= "mob" and gk) or rt.lootSrc, boss = boss }, LIMIT.notable)
+		if q >= 3 and kind ~= "pushed" and I.mark then
+			I.mark("loot", { id = id, name = e.name, q = q, by = boss or rt.lootSrc })
+		end
 		if rt.run and kind ~= "pushed" then
 			rt.run.drops = rt.run.drops or {}
 			push(rt.run.drops, { id = id, name = e.name, q = q, n = count, boss = boss }, 40)
@@ -617,6 +624,7 @@ local function discovered(name, xp)
 	end
 	local e = { name = name, xp = xp, zone = zoneName(), t = time() }
 	push(s.explore.found, e, LIMIT.found)
+	if I.mark then I.mark("found", { name = name, xp = xp }) end
 	if xp then s.xp.explore = s.xp.explore + xp end
 	rt.lastFound = { name = name, at = now(), e = e }
 end
@@ -721,6 +729,7 @@ on("ENCOUNTER_END", function(id, name, diff, size, success)
 		rt.lastBoss = { name = name, at = now() }
 		push(s.bosses, { name = name, t = time(), inst = rt.run and rt.run.name or zoneName(),
 			sec = started and math.floor(now() - started) or nil }, LIMIT.bosses)
+		if I.mark then I.mark("boss", { name = name }) end
 		if rt.run then push(rt.run.bosses, name, 30) end
 		if name and LZ.Skin then
 			local sec = started and math.floor(now() - started) or nil
@@ -744,6 +753,7 @@ on("PLAYER_DEAD", function()
 	push(s.deaths, { t = time(), zone = zoneName(), sub = _G.GetSubZoneText and GetSubZoneText() or nil,
 		by = hit and hit.by or nil, spell = hit and hit.spell or nil, lvl = playerLevel(),
 		inst = rt.run and rt.run.name or nil }, LIMIT.deaths)
+	if I.mark then I.mark("death", { by = hit and hit.by or nil, spell = hit and hit.spell or nil, lvl = playerLevel() }) end
 	if rt.run then rt.run.deaths = rt.run.deaths + 1 end
 end)
 
