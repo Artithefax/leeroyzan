@@ -470,6 +470,39 @@ class SessionsPage:
 
         self.run_bg(tr("Installiere Leeroylink"), lambda: install_link_addon(root, flavor), done)
 
+    def link_outdated(self) -> tuple[str, str]:
+        """(installierte, mitgelieferte Version), wenn Leeroylink installiert, aber älter ist – sonst ("", "")."""
+        if not self.root_path or not self.flavor or old_link_dir(self.root_path, self.flavor):
+            return "", ""
+        inst = installed_link_dir(self.root_path, self.flavor)
+        have, bundled = link_version(inst), link_version(bundled_link_dir())
+        if inst and bundled and (not have or parse_version(bundled) > parse_version(have)):
+            return have or "?", bundled
+        return "", ""
+
+    def auto_update_link(self, quiet: bool = False) -> bool:
+        """Leeroylink gehört zu Leeroyzan: ist das mitgelieferte Addon neuer, wird das installierte gleich
+        mit aktualisiert (wie Leeroyzan selbst – außer Updates stehen auf „Nur nachfragen“ oder „Aus“).
+        Nur bei geschlossenem WoW. True = erledigt."""
+        have, bundled = self.link_outdated()
+        if not bundled or self.cfg.get("self_update_mode", "auto") != "auto":
+            return False
+        root, flavor = self.root_path, self.flavor
+        if running_wow(root, flavor) or self.busy:
+            return False
+        try:
+            version = install_link_addon(root, flavor)
+        except Exception as e:  # noqa – dann bleibt der Hinweis mit dem Knopf
+            log.warning("Leeroylink automatisch aktualisieren: %s", e)
+            return False
+        log.info("Leeroylink automatisch aktualisiert: %s -> %s (%s)", have, version, flavor)
+        self.dismiss("link")
+        self.update_link_state()
+        if not quiet:
+            self.notify(tr("Leeroylink wurde auf {0} aktualisiert (vorher {1}). Beim nächsten Start von WoW lädt "
+                           "die neue Version.", version, have), "ok", timeout=20000)
+        return True
+
     def _carry_over_old_link_data(self):
         """Leeroylink von Hand installiert und den alten Ordner gelöscht: die Daten von „Leeroyzan Link“
         trotzdem übernehmen – nur wenn es noch keine Leeroylink-Datei gibt und WoW geschlossen ist."""
@@ -505,6 +538,8 @@ class SessionsPage:
                            "(WoW muss dafür geschlossen sein)."),
                         "update", [(tr("Umstellen"), self.install_link),
                                    (tr("Leeroylink"), lambda: self.show_page("sessions"))], key="link")
+        elif outdated and self.auto_update_link():
+            pass
         elif outdated and not self._link_hint_shown:
             self._link_hint_shown = True
             inst = installed_link_dir(self.root_path, self.flavor)

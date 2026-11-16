@@ -708,3 +708,124 @@ def clear_image_misses() -> None:
         os.remove(_miss_file())
     except OSError:
         pass
+
+
+# --------------------------------------------------------------------------- #
+# Wachposten: wo finde ich …? (Lehrer, Händler, Dienste – auf jeder Karte)
+# --------------------------------------------------------------------------- #
+F_VENDOR, F_FLIGHT, F_TRAINER, F_INN, F_BANK, F_GUILD, F_TABARD = 4, 8, 16, 128, 256, 512, 1024
+F_BATTLE, F_AUCTION, F_STABLE, F_REPAIR, F_BARBER = 2048, 4096, 8192, 16384, 33554432
+_CLASSES = [("WARRIOR", "Krieger", "Warrior"), ("PALADIN", "Paladin", "Paladin"), ("HUNTER", "Jäger", "Hunter|Pet"),
+            ("ROGUE", "Schurke", "Rogue"), ("PRIEST", "Priester", "Priest"), ("SHAMAN", "Schamane", "Shaman"),
+            ("MAGE", "Magier", "Mage|Portal"), ("WARLOCK", "Hexenmeister", "Warlock|Demon"), ("DRUID", "Druide", "Druid")]
+_PROFESSIONS = [("alchemy", "Alchemie", "Alchem"), ("blacksmithing", "Schmiedekunst", "Blacksmith|Armorsmith|Weaponsmith"),
+                ("enchanting", "Verzauberkunst", "Enchant"), ("engineering", "Ingenieurskunst", "Engineer"),
+                ("herbalism", "Kräuterkunde", "Herbalis"),
+                ("leatherworking", "Lederverarbeitung", "Leatherwork"), ("mining", "Bergbau", r"Mining|\bMiner"),
+                ("skinning", "Kürschnerei", "Skinn"), ("tailoring", "Schneiderei", "Tailor"),
+                ("cooking", "Kochkunst", r"Cook|\bChef"), ("firstaid", "Erste Hilfe", "First Aid|Physician|Surgeon|Medic"),
+                ("fishing", "Angeln", "Fish")]
+_VENDORS = [("repair", "Reparatur", F_REPAIR, ""),
+            ("general", "Gemischtwaren", F_VENDOR, r"General (Goods|Supplies|Trade)|Trade (Goods|Supplies|Supplier)|Tradesman"),
+            ("reagents", "Reagenzien", F_VENDOR, "Reagent"),
+            ("food", "Essen und Trinken", F_VENDOR, r"Food|Drink|Baker|Butcher|Bartender|Barmaid|Fruit|Meat|Waitress|Innkeeper|Cheese|Mushroom"),
+            ("supplies", "Handwerksbedarf", F_VENDOR, r"(Alchemy|Tailoring|Leatherworking|Blacksmithing|Engineering|Enchanting|"
+                                                      r"Fishing|Cooking|Herbalism|Mining|Jewelcrafting) Suppl|Recipes|Patterns|Plans"),
+            ("weapons", "Waffen", F_VENDOR, r"Weapon|Blade|Axe|Bow|Gun|Staff|Sword|Mace|Dagger|Fletcher"),
+            ("armor", "Rüstung", F_VENDOR, r"Armor|Shield|Clothier|Cloth\b|Mail\b|Leather Goods"),
+            ("bags", "Taschen", F_VENDOR, r"\bBag"),
+            ("poisons", "Gifte", F_VENDOR, "Poison|Shady Dealer")]
+_SERVICES = [("inn", "Gasthaus", F_INN, ""), ("bank", "Bank", F_BANK, ""), ("auction", "Auktionshaus", F_AUCTION, ""),
+             ("flight", "Flugmeister", F_FLIGHT, ""), ("stable", "Stallmeister", F_STABLE, ""),
+             ("mailbox", "Briefkasten", 0, ""), ("transmog", "Transmogrifizierer", 0, "Transmog"),
+             ("barber", "Barbier", F_BARBER, "Barber"), ("guild", "Gildenmeister", F_GUILD, ""),
+             ("tabard", "Wappenröcke", F_TABARD, "Tabard"), ("battle", "Kampfmeister", F_BATTLE, ""),
+             ("weaponmaster", "Waffenmeister", 0, "Weapon Master")]
+# Gruppen fürs Menü: (Name, [(Schlüssel, Name)])
+GUIDE_GROUPS = [
+    ("Klassenlehrer", [(f"class:{k}", n) for k, n, _ in _CLASSES]),
+    ("Berufslehrer", [(f"prof:{k}", n) for k, n, _ in _PROFESSIONS]),
+    ("Händler", [(f"vendor:{k}", n) for k, n, _, _ in _VENDORS]),
+    ("Dienste", [(f"service:{k}", n) for k, n, _, _ in _SERVICES]),
+]
+GUIDE_NAMES = {key: name for _, items in GUIDE_GROUPS for key, name in items}
+_GUIDE_LOCK = threading.Lock()
+
+
+def guide_index(db) -> dict[str, list[tuple[str, int]]]:
+    """Schlüssel der Wachposten-Liste -> [("npc"|"object", ID)] – einmal je Datenbank aus Art (Händler, Lehrer …)
+    und englischem Titel der NPCs bestimmt."""
+    with _GUIDE_LOCK:
+        cached = getattr(db, "_lz_guide", None)
+        if cached is not None:
+            return cached
+        out: dict[str, list[tuple[str, int]]] = {key: [] for key in GUIDE_NAMES}
+        cls = [(f"class:{k}", re.compile(rf"\b({rx}) Trainer")) for k, _, rx in _CLASSES]
+        prof = [(f"prof:{k}", re.compile(rx)) for k, _, rx in _PROFESSIONS]
+        vend = [(f"vendor:{k}", flag, re.compile(rx) if rx else None) for k, _, flag, rx in _VENDORS]
+        serv = [(f"service:{k}", flag, re.compile(rx) if rx else None) for k, _, flag, rx in _SERVICES]
+        for nid in db.all_ids("Npc"):
+            r = db.row("Npc", nid, 20) or {}
+            if not r.get(7):
+                continue
+            flags = r.get(15) if isinstance(r.get(15), int) else 0
+            sub = r.get(14) if isinstance(r.get(14), str) else ""
+            if not flags and not sub:
+                continue
+            ref = ("npc", nid)
+            if flags & F_TRAINER:
+                hit = next((key for key, rx in cls if rx.search(sub)), None)
+                if hit:
+                    out[hit].append(ref)
+                elif "Weapon Master" not in sub:
+                    hit = next((key for key, rx in prof if rx.search(sub)), None)
+                    if hit:
+                        out[hit].append(ref)
+            for key, flag, rx in vend:
+                if flags & flag and (rx is None or rx.search(sub)):
+                    out[key].append(ref)
+            for key, flag, rx in serv:
+                if (flag and flags & flag) or (rx is not None and rx.search(sub)):
+                    out[key].append(ref)
+        for oid in db.all_ids("Object"):
+            r = db.row("Object", oid, 10) or {}
+            if r.get(4) and r.get(1) == "Mailbox":
+                out["service:mailbox"].append(("object", oid))
+        try:
+            db._lz_guide = out
+        except AttributeError:
+            pass
+        return out
+
+
+def guide_places(db, idx: ZoneIndex, key: str, side: str = "", locale: str = "enUS") -> list[dict]:
+    """Alle Fundorte einer Wachposten-Kategorie: [{"kind", "id", "name", "sub", "ui", "x", "y"}].
+    side "A"/"H": nur NPCs, die dieser Fraktion freundlich sind."""
+    out = []
+    for kind, eid in guide_index(db).get(key, []):
+        if kind == "npc":
+            r = db.row("Npc", eid, 20) or {}
+            friendly = r.get(13) if isinstance(r.get(13), str) else ""
+            if side and friendly and side not in friendly:
+                continue
+            n = db.npc(eid, locale) or {}
+            name, sub, spawns = n.get("name") or f"NPC {eid}", n.get("sub") or "", npc_spawns(db, eid)
+        else:
+            name = tr("Briefkasten") if key == "service:mailbox" else db.obj_name(eid, locale)
+            sub, spawns = "", object_spawns(db, eid)
+        for area, pts in spawns.items():
+            ui = idx.ui_for_area(area)
+            if not ui:
+                continue
+            for x, y in pts[:3] if kind == "npc" else pts:      # NPCs mit Laufweg haben mehrere Punkte: der erste reicht fast immer
+                out.append({"kind": kind, "id": eid, "name": name, "sub": sub, "ui": ui, "x": x, "y": y})
+                if kind == "npc":
+                    break
+    return out
+
+
+def nearest_first(places: list[dict], x: float | None, y: float | None) -> list[dict]:
+    """Nach Entfernung zu einem Punkt der Karte sortiert (Kartenbreite : -höhe = 3 : 2); ohne Punkt nach Namen."""
+    if x is None or y is None:
+        return sorted(places, key=lambda p: (p["name"].lower(), p["x"]))
+    return sorted(places, key=lambda p: ((p["x"] - x) * 1.5) ** 2 + (p["y"] - y) ** 2)

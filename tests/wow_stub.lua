@@ -88,14 +88,37 @@ Frame.__index = function(t, k)
 end
 function Frame:SetScript(name, fn) self.scripts[name] = fn end
 function Frame:GetScript(name) return self.scripts[name] end
-function Frame:HookScript(name, fn) self.scripts[name] = fn end
+function Frame:HookScript(name, fn)
+	if name == "OnShow" or name == "OnHide" then
+		self.hooks[name] = self.hooks[name] or {}
+		table.insert(self.hooks[name], fn)
+	else
+		self.scripts[name] = fn
+	end
+end
 function Frame:RegisterEvent(e) self.events[e] = true end
 function Frame:RegisterUnitEvent(e, unit) self.events[e] = unit or true end
 function Frame:UnregisterEvent(e) self.events[e] = nil end
 function Frame:UnregisterAllEvents() self.events = {} end
 function Frame:IsShown() return self.shown end
-function Frame:Show() self.shown = true end
-function Frame:Hide() self.shown = false end
+function Frame:IsVisible() return self.shown end
+-- Show/Hide run every OnShow/OnHide hook (HookScript keeps them all)
+function Frame:Show()
+	local was = self.shown
+	self.shown = true
+	if not was then for _, fn in ipairs(self.hooks.OnShow or {}) do fn(self) end end
+end
+function Frame:Hide()
+	local was = self.shown
+	self.shown = false
+	if was then for _, fn in ipairs(self.hooks.OnHide or {}) do fn(self) end end
+end
+function Frame:ClearAllPoints() rawset(self, "points", {}) end
+function Frame:SetPoint(...)
+	local pts = rawget(self, "points")
+	if not pts then pts = {}; rawset(self, "points", pts) end
+	pts[#pts + 1] = { ... }
+end
 function Frame:GetWidth() return 140 end
 function Frame:GetHeight() return 140 end
 function Frame:GetStringHeight() return 12 end
@@ -106,7 +129,7 @@ function Frame:CreateFontString() return CreateFrame("FontString") end
 function Frame:CreateTexture() return CreateFrame("Texture") end
 
 function CreateFrame(kind, name)
-	local f = setmetatable({ kind = kind, scripts = {}, events = {}, shown = true }, Frame)
+	local f = setmetatable({ kind = kind, scripts = {}, events = {}, hooks = {}, shown = true }, Frame)
 	table.insert(STUB.frames, f)
 	if name then _G[name] = f end
 	return f

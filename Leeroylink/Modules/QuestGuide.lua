@@ -1,6 +1,8 @@
--- QuestGuide: the quest companion. A window of its own (no other addon needed, also
--- not the quest frame of the game or of DialogueUI) that shows where a quest belongs
--- in its quest chain and what the next quests ask for and give.
+-- QuestGuide: the quest companion. Shows where a quest belongs in its quest chain and what
+-- the next quests ask for and give. It does not open by itself: it extends the quest log
+-- (the game's classic one, the one attached to the map) and the quest giver's window with a
+-- tab "Questreihe"; a click opens the companion docked beside that window, and it closes
+-- with it. No other addon is needed.
 --
 -- Data: Quests.lua (LeeroylinkQuests), written by Leeroyzan from QuestieDB, with the
 -- rewards from the cMaNGOS game database (Classic). It lives in the load-on-demand addon
@@ -14,13 +16,14 @@ local mod = LZ:NewModule("QuestGuide", {
 	group = "link",
 	title = { "Questbegleiter", "Quest companion" },
 	desc = {
-		"Zeigt in einem eigenen Fenster, zu welcher Questreihe eine Quest gehört und was die Folgequests verlangen und bringen. Die Questdaten schreibt Leeroyzan aus QuestieDB; Belohnungen merkt sich jeder Charakter, sobald er sie sieht.",
-		"Shows in a window of its own which quest chain a quest belongs to and what the follow-up quests ask for and give. Leeroyzan writes the quest data from QuestieDB; every character remembers rewards as soon as it sees them.",
+		"Erweitert das Questlog und das Fenster des Questgebers um den Reiter „Questreihe“: zu welcher Questreihe eine Quest gehört und was die Folgequests verlangen und bringen. Die Questdaten schreibt Leeroyzan aus QuestieDB; Belohnungen merkt sich jeder Charakter, sobald er sie sieht.",
+		"Adds a tab \"Quest chain\" to the quest log and the quest giver's window: which quest chain a quest belongs to and what the follow-up quests ask for and give. Leeroyzan writes the quest data from QuestieDB; every character remembers rewards as soon as it sees them.",
 	},
-	defaults = { auto = true, autoLog = true },
+	defaults = { tab = true, dock = true, autoGiver = false },
 	options = {
-		{ key = "auto", label = { "Beim Questgeber automatisch zeigen", "Show automatically at quest givers" } },
-		{ key = "autoLog", label = { "Beim Auswählen einer Quest im Questlog zeigen", "Show when selecting a quest in the quest log" } },
+		{ key = "tab", label = { "Reiter „Questreihe“ am Questlog und beim Questgeber", "Tab \"Quest chain\" at the quest log and at quest givers" } },
+		{ key = "dock", label = { "Fenster am Questlog andocken (schließt mit ihm)", "Dock the window to the quest log (closes with it)" } },
+		{ key = "autoGiver", label = { "Beim Questgeber von selbst öffnen", "Open by itself at quest givers" } },
 	},
 })
 
@@ -33,6 +36,9 @@ local NAME, LVL, REQ, ZONE, SIDE, NEXT, PRE, START, FINISH, TEXT, REP, XP = 1, 2
 local ITEMS, CHOICE, MONEY, SPELL, UNSURE = 15, 16, 17, 18, 19
 
 local frame, shownID, autoShown
+local hosts = {}          -- windows the companion extends: { kind = "log"|"map"|"giver", frame =, tab = }
+local dockedTo            -- the host the window is docked to right now
+local TAB_WIDTH = 96
 local nextOf, prevOf
 
 local function known(v)
@@ -461,7 +467,7 @@ local function build()
 	if frame then return end
 	local Skin = LZ.Skin
 	frame = Skin.Window("LeeroylinkQuestGuide", P(mod.title), WIDTH, HEIGHT, {
-		pos = mod.opt.pos, save = function(p) mod.opt.pos = p end, anchor = "RIGHT", x = -80, y = 40,
+		pos = mod.opt.pos, save = function(p) if not dockedTo then mod.opt.pos = p end end, anchor = "RIGHT", x = -80, y = 40,
 		openSound = "IG_QUEST_LOG_OPEN", closeSound = "IG_QUEST_LOG_CLOSE",
 	})
 	local portrait = Skin.Portrait(frame)
@@ -484,6 +490,34 @@ local function build()
 	frame:HookScript("OnHide", function() autoShown = false end)
 end
 
+-- beside the window it extends: right of it, left where the screen ends
+local function dock(host)
+	if not (host and host.frame and frame) then return end
+	local hf = host.frame
+	local right = hf.GetRight and hf:GetRight()
+	local screen = UIParent.GetRight and UIParent:GetRight()
+	frame:ClearAllPoints()
+	if type(right) == "number" and type(screen) == "number" and right + WIDTH + 8 > screen then
+		frame:SetPoint("TOPRIGHT", hf, "TOPLEFT", -2, 0)
+	else
+		frame:SetPoint("TOPLEFT", hf, "TOPRIGHT", 2, 0)
+	end
+	dockedTo = host
+end
+
+-- back to its own place (opened by /lz quest or from the Leeroylink window)
+local function undock()
+	if not (dockedTo and frame) then dockedTo = nil; return end
+	dockedTo = nil
+	frame:ClearAllPoints()
+	local pos = mod.opt.pos
+	if type(pos) == "table" and pos[1] then
+		frame:SetPoint(pos[1], UIParent, pos[2] or pos[1], pos[3] or 0, pos[4] or 0)
+	else
+		frame:SetPoint("RIGHT", UIParent, "RIGHT", -80, 40)
+	end
+end
+
 local function render(id, keepScroll)
 	local page = frame.page
 	local pos = keepScroll and page.scroll.GetVerticalScroll and page.scroll:GetVerticalScroll() or 0
@@ -491,11 +525,14 @@ local function render(id, keepScroll)
 	if keepScroll and page.scroll.SetVerticalScroll then page.scroll:SetVerticalScroll(pos) end
 end
 
-function mod:Show(id, auto)
+-- host: the window to dock to (a click on its tab); without one the window keeps its own place
+function mod:Show(id, auto, host)
 	build()
 	shownID = id
 	if not frame:IsShown() then autoShown = auto and true or false
 	elseif not auto then autoShown = false end
+	if host and self.opt.dock then dock(host)
+	elseif not host and not (auto and frame:IsShown()) then undock() end
 	render(id)
 	local list, pos = self:Chain(id)
 	if pos > 1 then frame.prev:Enable() else frame.prev:Disable() end
@@ -531,21 +568,139 @@ local function logQuestID(index)
 	if not known(isHeader) and type(known(id)) == "number" and id > 0 then return id end
 end
 
+local function mapQuestID()
+	local qm = _G.QuestMapFrame
+	local details = type(qm) == "table" and qm.DetailsFrame
+	local id = type(details) == "table" and known(details.questID) or nil
+	if type(id) == "number" and id > 0 then return id end
+	return logQuestID()
+end
+
+local function hostQuestID(host)
+	if host.kind == "giver" then return giverQuestID() end
+	if host.kind == "map" then return mapQuestID() end
+	return logQuestID()
+end
+
+local function visible(f)
+	return type(f) == "table" and f.IsVisible and f:IsVisible() and true or false
+end
+
+-- the tab is there while its window shows a quest the companion knows
+local function refreshTabs()
+	for _, host in ipairs(hosts) do
+		local id = mod.enabled and mod.opt.tab and visible(host.frame) and hostQuestID(host) or nil
+		if id and quest(id) then host.tab:Show() else host.tab:Hide() end
+	end
+end
+
+local function placeTab(host)
+	local hf, tab = host.frame, host.tab
+	local right = hf.GetRight and hf:GetRight()
+	local screen = UIParent.GetRight and UIParent:GetRight()
+	tab:ClearAllPoints()
+	if type(right) == "number" and type(screen) == "number" and right + TAB_WIDTH > screen then
+		tab:SetPoint("TOPRIGHT", hf, "TOPRIGHT", -34, -30)        -- no room outside: inside, below the close button
+	else
+		tab:SetPoint("TOPLEFT", hf, "TOPRIGHT", -2, -64)
+	end
+end
+
+local function clickTab(host)
+	if frame and frame:IsShown() and dockedTo == host then return mod:Hide() end
+	local id = hostQuestID(host)
+	if not (id and quest(id)) then return end
+	if host.kind == "giver" then learnFromGiver(id) else learnFromLog(id) end
+	mod:Show(id, false, host)
+end
+
+local function addHost(kind, hf)
+	if type(hf) ~= "table" or not hf.HookScript then return end
+	for _, h in ipairs(hosts) do
+		if h.frame == hf then return end
+	end
+	local host = { kind = kind, frame = hf }
+	-- a frame of its own that is only anchored to the game's window (not a child of it):
+	-- nothing of the addon ends up inside the quest log or the map
+	host.tab = LZ.Skin.Button(UIParent, T("Questreihe", "Quest chain"), TAB_WIDTH, function() LZ:Safe(clickTab, host) end)
+	local strata = hf.GetFrameStrata and hf:GetFrameStrata()
+	host.tab:SetFrameStrata(type(strata) == "string" and strata or "HIGH")
+	if hf.GetFrameLevel then host.tab:SetFrameLevel((tonumber(hf:GetFrameLevel()) or 1) + 10) end
+	host.tab:Hide()
+	hf:HookScript("OnShow", function() LZ:Safe(function() placeTab(host); refreshTabs() end) end)
+	hf:HookScript("OnHide", function()
+		host.tab:Hide()
+		if dockedTo == host and frame then frame:Hide() end
+	end)
+	hosts[#hosts + 1] = host
+	placeTab(host)
+end
+
+-- the game creates some of these windows late (load on demand): look again when a quest shows up
+local hookedDetails = false
+local function findHosts()
+	if not LZ.Skin then return end
+	addHost("log", _G.QuestLogFrame)
+	addHost("giver", _G.QuestFrame)
+	local qm = _G.QuestMapFrame
+	if type(qm) == "table" and type(qm.DetailsFrame) == "table" then addHost("map", qm.DetailsFrame) end
+	if not hookedDetails and _G.hooksecurefunc and type(_G.QuestMapFrame_ShowQuestDetails) == "function" then
+		hookedDetails = true
+		hooksecurefunc("QuestMapFrame_ShowQuestDetails", function()
+			if mod.enabled then LZ:Safe(function() mod:ShowSelected(false) end) end
+		end)
+	end
+end
+
+local function hostOf(kind)
+	for _, h in ipairs(hosts) do
+		if h.kind == kind and visible(h.frame) then return h end
+	end
+	for _, h in ipairs(hosts) do
+		if h.kind == kind then return h end
+	end
+end
+
+-- a quest was selected in a quest log: remember its rewards; an open companion follows the
+-- selection, a closed one stays closed
 function mod:ShowSelected(force)
-	local id = logQuestID()
+	findHosts()
+	local id = mapQuestID()
 	if id then
 		learnFromLog(id)
-		if force or (self.opt.autoLog and quest(id)) then self:Show(id, not force) end
+		if force then
+			self:Show(id)
+		elseif frame and frame:IsShown() and quest(id) and not (dockedTo and dockedTo.kind == "giver") then
+			self:Show(id, true, dockedTo)
+		end
 	elseif force then
 		self:Print(T("Wähle zuerst eine Quest im Questlog aus – oder /lz quest <Name>.", "Select a quest in the quest log first – or /lz quest <name>."))
 	end
+	refreshTabs()
+end
+
+local function atGiver(self, id, target)
+	findHosts()
+	local host = hostOf("giver")
+	if self.opt.autoGiver and quest(target) then
+		self:Show(target, true, host)
+	elseif frame and frame:IsShown() and dockedTo and dockedTo.kind == "giver" and quest(target) then
+		self:Show(target, autoShown, dockedTo)
+	end
+	refreshTabs()
+	LZ.After(0.25, function() LZ:Safe(refreshTabs) end)     -- the quest ID can arrive a moment after the event
 end
 
 mod:Event("QUEST_DETAIL", function(self)
 	local id = giverQuestID()
 	if not id then return end
 	learnFromGiver(id)
-	if self.opt.auto and quest(id) then self:Show(id, true) end
+	atGiver(self, id, id)
+end)
+
+mod:Event("QUEST_PROGRESS", function(self)
+	local id = giverQuestID()
+	if id then atGiver(self, id, id) end
 end)
 
 mod:Event("QUEST_COMPLETE", function(self)
@@ -553,10 +708,12 @@ mod:Event("QUEST_COMPLETE", function(self)
 	if not id then return end
 	learnFromGiver(id)
 	-- on turn-in, show what comes next
-	if self.opt.auto and quest(id) then
+	local target = id
+	if quest(id) then
 		local list, pos = self:Chain(id)
-		self:Show(list[pos + 1] and quest(list[pos + 1]) and list[pos + 1] or id, true)
+		if list[pos + 1] and quest(list[pos + 1]) then target = list[pos + 1] end
 	end
+	atGiver(self, id, target)
 end)
 
 -- the last quest of a chain handed in: a banner for the whole chain
@@ -572,7 +729,8 @@ mod:Event("QUEST_TURNED_IN", function(self, _, questID)
 end)
 
 mod:Event("QUEST_FINISHED", function()
-	if autoShown and frame then frame:Hide() end
+	if frame and (autoShown or (dockedTo and dockedTo.kind == "giver")) then frame:Hide() end
+	refreshTabs()
 end)
 
 local function refresh(self)
@@ -603,6 +761,7 @@ mod:Event("QUEST_LOG_UPDATE", function(self)
 			end
 		end)
 	end
+	refreshTabs()
 end)
 
 -- Leeroyzan can switch the companion on or off (Data.lua); the newer change wins
@@ -631,13 +790,21 @@ function mod:OnEnable()
 			if mod.enabled then LZ:Safe(function() mod:ShowSelected(false) end) end
 		end)
 	end
+	findHosts()
+	LZ.After(3, function() LZ:Safe(function() findHosts(); refreshTabs() end) end)
 	-- names from the game for Leeroyzan (zones and factions in the language of the game)
 	LZ.After(8, function() LZ:Safe(mod.CollectNames, mod) end)
 end
 
 function mod:OnDisable()
 	self:Hide()
+	for _, host in ipairs(hosts) do host.tab:Hide() end
 end
+
+-- for tests
+function mod:Hosts() return hosts end
+function mod:DockedTo() return dockedTo end
+function mod:Shown() return frame and frame:IsShown() and shownID or nil end
 
 function mod:CollectNames()
 	local names = LZ.gdb.names
