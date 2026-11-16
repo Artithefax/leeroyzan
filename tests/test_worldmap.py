@@ -150,6 +150,34 @@ class RouteTests(unittest.TestCase):
         self.assertIsNone(M.screenshot_for(str(root), "_forever_", t - 100))
 
 
+class TypeaheadTests(unittest.TestCase):
+    NAMES = ["Kalimdor", "Silithus", "Steinkrallengebirge", "Tanaris", "Östliche Königreiche", "Schlingendorntal",
+             "Sengende Schlucht", "Sturmwind", "Sumpfland", "Wald von Elwynn"]
+
+    def test_letter_cycles(self):
+        from leeroy.ui.worldmap import typeahead
+        n = self.NAMES
+        seen, cur = [], 9
+        for _ in range(7):
+            cur = typeahead(n, cur, "s", cycle=True)
+            seen.append(n[cur])
+        self.assertEqual(seen, ["Silithus", "Steinkrallengebirge", "Schlingendorntal", "Sengende Schlucht", "Sturmwind",
+                                "Sumpfland", "Silithus"], "every S, then from the top again")
+        self.assertEqual(typeahead(n, 7, "S", cycle=True), 8, "case does not matter")
+        self.assertEqual(n[typeahead(n, 0, "ö", cycle=True)], "Östliche Königreiche")
+        self.assertEqual(typeahead(n, 0, "x", cycle=True), -1)
+        self.assertEqual(typeahead(n, 3, "t", cycle=True), 3, "the only match stays")
+
+    def test_prefix(self):
+        from leeroy.ui.worldmap import typeahead
+        n = self.NAMES
+        self.assertEqual(n[typeahead(n, 9, "St", cycle=False)], "Steinkrallengebirge")
+        self.assertEqual(n[typeahead(n, 2, "Stu", cycle=False)], "Sturmwind")
+        self.assertEqual(typeahead(n, 7, "St", cycle=False), 7, "the current one stays while it fits")
+        self.assertEqual(n[typeahead(n, 0, "wald v", cycle=False)], "Wald von Elwynn")
+        self.assertEqual(typeahead([], 0, "s", cycle=False), -1)
+
+
 class ZoneTests(unittest.TestCase):
     def write_questie(self) -> Path:
         q = TMP / "QuestieDB"
@@ -424,6 +452,37 @@ class MapPageTests(unittest.TestCase):
             app.map_search()
             pump(3, until=lambda: app.map_ui == 1433)
             self.assertEqual(app.map_ui, 1433)
+            # Tippen in der Kartenauswahl: Buchstabe reihum, Umschalt + Wortanfang direkt
+            class Key:
+                def __init__(self, char, state=0):
+                    self.char, self.state = char, state
+            names = app._map_zone_names
+            cb = app.map_zone_cb
+            first = cb.current()
+            self.assertEqual(app._map_zone_key(Key("s")), "break")
+            a = cb.current()
+            app._map_zone_key(Key("s"))
+            b = cb.current()
+            self.assertTrue(names[a].lower().startswith("s") and names[b].lower().startswith("s") and a != b != first,
+                            (names[first], names[a], names[b]))
+            for ch in "STU":
+                app._map_zone_key(Key(ch, 0x1))
+            self.assertEqual(names[cb.current()], "Sturmwind")
+            pump(1.5, until=lambda: app.map_ui == 1453)
+            self.assertEqual(app.map_ui, 1453, "the typed map opens after a short pause")
+            app._map_type_reset()
+            self.assertIsNone(app._map_zone_key(Key("1", 0x4)), "Ctrl shortcuts pass through")
+            self.assertIsNone(app._map_zone_key(Key("")), "arrow keys and the like pass through")
+            cb.focus_force()
+            pump(0.2)
+            cb.event_generate("<KeyPress>", keysym="r")
+            pump(0.2)
+            self.assertEqual(names[cb.current()], "Rotkammgebirge", "real key press in the closed field")
+            # aufgeklappte Liste: markieren, Enter wählt (das macht Tk)
+            app.tk.call("ttk::combobox::ConfigureListbox", str(cb))
+            app._map_zone_key_list("w", "0")
+            sel = app.tk.splitlist(app.tk.call(app._map_zone_lb, "curselection"))
+            self.assertTrue(names[int(sel[0])].lower().startswith("w"), sel)
             # Filter und Ebenen
             app.map_period_cb.current(0)
             app._map_filter_changed()
