@@ -280,6 +280,8 @@ class WidgetsMixin:
             self.builds_open()
         elif key == "quests":
             self.qdb_open()
+        elif key == "map":
+            self.map_open()
         elif key == "auction":
             self.ah_open()
         elif key == "sessions":

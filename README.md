@@ -84,6 +84,12 @@ Leeroyzan comes with its own companion addon, **Leeroylink** (folder `Leeroylink
 
 How it works: WoW addons cannot open network connections or write files, so the addon keeps its data in its *SavedVariables* (`WTF\Account\<account>\SavedVariables\Leeroylink.lua`, the newest 30 sessions), which WoW writes on logout and on `/reload`. Leeroyzan watches that file, **only reads it** and stores each session as a JSON file in `Leeroyzan-Data\sessions\<game version>`. A `/reload` or logging back in with the same character within 15 minutes continues the same session. If Leeroyzan is open while you play, the summary appears as soon as the game is closed; otherwise on the next start. In the game, `/lz session` shows the current session.
 
+## Map
+
+The **Map** page shows your sessions on the zone maps: the routes you took (flight paths dashed), places where something happened (deaths, level-ups, bosses and rare enemies, rare loot, gathering, discoveries, quests, screenshots) and – with QuestieDB installed – a quest layer with the open objectives and turn-ins of your active quests and the quests you can pick up nearby. A session can be replayed on the map, the search finds zones, NPCs, objects and quests, and each continent has an overview of its zones. Right click copies a `/way` command.
+
+Where the data comes from: Leeroylink 0.9 records the position every few seconds (only while it changes) as compact text in the session, plus the quest log, the finished quest IDs and an index of the game's maps. Coordinates are the game's own (percent of the zone map), the same as Questie and Wowhead use; QuestieDB's own tables (`support/<flavor>/Zones`) translate between the game's map IDs and the area IDs of Questie and Wowhead – WoW Forever has its own. Map images are downloaded from Wowhead once per zone into `Leeroyzan-Data\wowhead\img`; zones without an image are drawn as a grid.
+
 ## Discord
 
 Everything Discord lives in *Settings → Discord*. Leeroyzan needs no bot and no token.
@@ -129,6 +135,7 @@ ruff check .
 - `tests/test_files.py` covers installing, undo, interrupted updates, parked sources, settings, encryption and signatures.
 - `tests/test_discordshare.py` checks the Discord posts (builds, guides, Wowhead, quests, characters, addon lists) against Discord's limits and clicks every *Discord ↗* button in the window; `tests/test_presence.py` talks to a stand-in for the Discord app.
 - `tests/test_gui.py` opens the window in every layout and language and shows every page (on Linux: `xvfb-run -a python -m unittest tests.test_gui`).
+- `tests/test_worldmap.py` checks the map: routes and places from the scenario, zone tables, map images, the quest layer (with a small stand-in for QuestieDB), the search and the page itself (zoom, replay, overview, search).
 - `tests/test_i18n.py`, `tests/test_static.py` and `tests/test_lua_globals.py` check translations, typical mistakes in the source and stray Lua globals (needs `luac`).
 - `tests/test_windows.py` covers what only exists on Windows: encrypted keys (DPAPI), the process list, waiting for a process, replacing the `.exe` and the signature check.
 

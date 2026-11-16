@@ -68,6 +68,7 @@ local function bookKill(name, c)
 	K[c] = K[c] + 1
 	local e = mobEntry(name, c)
 	if e then e.n = e.n + 1; e.c = c end
+	if (c == "rare" or c == "rareelite") and I.mark then I.mark("rare", { name = name, c = c }) end
 	local z = zoneEntry(zoneName())
 	z.kills = (z.kills or 0) + 1
 	if rt.run then rt.run.kills = rt.run.kills + 1 end

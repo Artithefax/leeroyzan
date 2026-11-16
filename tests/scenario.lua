@@ -8,6 +8,9 @@ if PART == 2 then -- the game state after the reload is what part 1 left behind
 	STUB.level, STUB.xp, STUB.xpMax, STUB.money = 22, 200, 11000, 52625
 	STUB.skills[2][4], STUB.skills[3][4] = 46, 31
 	STUB.bag = { { id = 2589, n = 12 }, { id = 4306, n = 3 } }
+	STUB.completed = { [7] = true, [33] = true, [176] = true }
+	STUB.questLog = { { title = "Die Bedrohung der Gnolle", level = 20, id = 125, complete = 1,
+		o = { { "Rotkammgnoll getötet: 3/10", false }, { "Gnollpfoten: 5/5", true } } } }
 end
 
 local failures, checks = 0, 0
@@ -87,10 +90,23 @@ if PART == 1 then
 	STUB.mounted, STUB.speed = false, 0
 	STUB.fire("ZONE_CHANGED")
 	_G.JumpOrAscendStart(); _G.JumpOrAscendStart(); _G.JumpOrAscendStart()
+	local MP = LZ.modules.Map
+	check(MP and MP.enabled, "map module enabled")
+	check(s.map and s.map.v == 1 and #s.map.segs == 1 and s.map.segs[1].m == 1433, "route on the player's map")
+	check(s.map.n >= 15 and s.map.n <= 40, "route points while moving (every ~14 yards, 3 s ticks): " .. tostring(s.map.n))
+	local idx = LZ.gdb.mapIndex
+	check(idx and idx.maps[1433] and idx.maps[1433].n == "Rotkammgebirge" and idx.maps[1433].on == 1415, "map index: zone with continent")
+	check(idx and idx.maps[1433].r and idx.maps[1433].r[1] == 4900 and idx.maps[1433].r[4] == 7200, "map index: zone rectangle on the continent")
+	check(idx and idx.maps[1415].on == 947 and idx.maps[1415].r and idx.maps[1453].ty == 3, "map index: continent on the world, city below a zone")
+	local calls = STUB.mapCalls
+	MP:UpdateIndex()
+	check(STUB.mapCalls == calls, "map index is not rebuilt on every login")
 
 	-- quest accepted (Classic args: log index, quest ID)
-	STUB.questLog = { { title = "Die Bedrohung der Gnolle", level = 20, id = 125 } }
+	STUB.questLog = { { title = "Die Bedrohung der Gnolle", level = 20, id = 125,
+		o = { { "Rotkammgnoll getötet: 3/10", false }, { "Gnollpfoten: 5/5", true } } } }
 	STUB.fire("QUEST_ACCEPTED", 1, 125)
+	check(s.map.pins[#s.map.pins].k == "qa" and s.map.pins[#s.map.pins].id == 125 and s.map.pins[#s.map.pins].x, "place of an accepted quest")
 	STUB.questLog[2] = { title = "Unnützes Zeug", level = 19, id = 300 }
 	STUB.fire("QUEST_ACCEPTED", 2, 300)
 
@@ -383,8 +399,25 @@ if PART == 1 then
 	table.remove(STUB.questLog)
 	STUB.reward = nil
 
+	local kinds = {}
+	for _, p in ipairs(s.map.pins) do kinds[p.k] = (kinds[p.k] or 0) + 1 end
+	check(kinds.rare == 1 and kinds.found == 1 and kinds.level == 1 and kinds.gather == 1, "places: rare kill, discovery, level-up, one per herb: "
+		.. tostring(kinds.rare) .. "/" .. tostring(kinds.found) .. "/" .. tostring(kinds.level) .. "/" .. tostring(kinds.gather))
+	STUB.fire("SCREENSHOT_SUCCEEDED")
+	check(s.map.pins[#s.map.pins].k == "shot", "place of a screenshot")
+	STUB.completed = { [7] = true, [33] = true, [176] = true }
+	local keepLog = STUB.questLog
+	STUB.questLog = { { title = "Die Bedrohung der Gnolle", level = 20, id = 125, complete = 1,
+		o = { { "Rotkammgnoll getötet: 3/10", false }, { "Gnollpfoten: 5/5", true } } } }
 	STUB.fire("PLAYER_LOGOUT")
 	check(s.played > 200, "played time: " .. s.played)
+	check(s.map.segs[#s.map.segs].d ~= "" and s.map.segs[1].d:match("^%d+,%d+,0;%d+,%d+,%d+"), "route written as text on logout: " .. tostring(s.map.segs[1].d):sub(1, 40))
+	local ql = LZ.char.questLog
+	check(ql and #ql.list >= 1 and ql.list[1].id == 125 and ql.list[1].done and ql.list[1].o[1].text:find("3/10", 1, true)
+		and ql.list[1].o[2].done, "quest log with objectives for Leeroyzan")
+	check(LZ.char.questsDone == "7,33,176", "finished quests for Leeroyzan: " .. tostring(LZ.char.questsDone))
+	check(LZ.char.pos and LZ.char.pos.m == 1433 and LZ.char.pos.x > 3000, "last position")
+	STUB.questLog = keepLog
 else
 	-- after /reload: the same session continues
 	check(#LZ.gdb.sessionLog == 1, "no new session after reload: " .. #LZ.gdb.sessionLog)
@@ -418,6 +451,12 @@ else
 	check(s.runs[1].stop ~= nil, "dungeon run closed")
 	check(s.runs[1].kills == 2 and #s.runs[1].bosses == 1 and s.runs[1].wipes == 1 and s.runs[1].deaths == 1, "run stats")
 	check(#s.bosses == 1 and s.bosses[1].name == "Edwin VanCleef", "boss recorded")
+	local boss, death
+	for _, p in ipairs(s.map.pins) do
+		if p.k == "boss" then boss = p elseif p.k == "death" then death = p end
+	end
+	check(boss and boss.name == "Edwin VanCleef" and boss.x == nil and boss.inst == "Die Todesminen", "boss place: instance without position")
+	check(death and death.by == "Edwin VanCleef" and death.lvl == 22, "death place with killer and level")
 	check(s.kills.boss == 1, "boss classified by encounter: " .. s.kills.boss)
 	check(s.deathN == 1 and s.deaths[1].by == "Edwin VanCleef", "death with killer")
 	check(s.time.instance >= 80, "time in instance: " .. s.time.instance)
@@ -425,10 +464,20 @@ else
 	check(drops and drops[1].name == "Kristall des Testens" and drops[1].boss == "Edwin VanCleef", "boss loot in the run")
 
 	-- flight path
+	local before = #s.map.segs
+	STUB.speed = 7
+	STUB.advance(9)
 	STUB.taxi, STUB.speed = true, 30
+	STUB.pos.y = 0.6
 	STUB.advance(20)
 	STUB.taxi, STUB.speed = false, 0
+	STUB.pos.y = 0.7
+	STUB.advance(6)
 	STUB.fire("PLAYER_LOGOUT")
+	local kinds2 = {}
+	for i = before, #s.map.segs do kinds2[#kinds2 + 1] = s.map.segs[i].k or "-" end
+	check(before >= 2 and table.concat(kinds2, " ") == "- t -", "after the reload: new pieces on foot, flight, on foot: " .. table.concat(kinds2, " "))
+	check(s.map.segs[1].d ~= "" and s.map.n > 20, "route of part 1 kept across the reload")
 	check(s.move.taxi > 500, "flight path distance")
 	check(s.played > 300, "played time grows across reload: " .. s.played)
 	check(s.xpNow == STUB.xp and s.xpMax == STUB.xpMax, "xp progress saved")

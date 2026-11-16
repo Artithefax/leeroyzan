@@ -95,6 +95,8 @@ class LinkDataMixin:
             self.refresh_diagnose()
         elif self.current_page == "characters":
             self.refresh_characters()
+        elif self.current_page == "map":
+            self.map_refresh()
         self._hint_reports()
         self._hint_errors()
         self._quest_guide_button()

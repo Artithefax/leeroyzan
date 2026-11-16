@@ -144,7 +144,47 @@ def _norm_char(key: str, raw, account: str) -> dict:
         "bankSeen": isinstance(c.get("bank"), (dict, list)) and bool(c.get("bank")),
         "recipes": recipes,
         "autoProfile": _text(c.get("autoProfile")),
+        "questLog": _norm_quest_log(c.get("questLog")),
+        "questsDone": [int(x) for x in re.findall(r"\d+", c["questsDone"])] if isinstance(c.get("questsDone"), str) else None,
+        "pos": _norm_pos(c.get("pos")),
     }
+
+
+def _norm_quest_log(raw) -> dict | None:
+    """Questliste beim letzten Ausloggen (Leeroylink 0.9): Quests mit Zielen."""
+    if not isinstance(raw, dict):
+        return None
+    q = _map(raw)
+    return {"t": _int(q.get("t")),
+            "list": [{"id": _int(_map(e).get("id")), "title": _text(_map(e).get("title")), "lvl": _int(_map(e).get("lvl")),
+                      "done": bool(_map(e).get("done")), "failed": bool(_map(e).get("failed")),
+                      "o": [{"text": _text(_map(o).get("text")), "done": bool(_map(o).get("done")), "ty": _text(_map(o).get("ty"))}
+                            for o in _list(_map(e).get("o"))]}
+                     for e in _list(q.get("list")) if _int(_map(e).get("id")) > 0]}
+
+
+def _norm_pos(raw) -> dict | None:
+    p = _map(raw)
+    if _int(p.get("m")) <= 0:
+        return None
+    out = {"m": _int(p.get("m")), "t": _int(p.get("t"))}
+    if p.get("x") is not None and p.get("y") is not None:
+        out["x"], out["y"] = round(_num(p.get("x")) / 100, 2), round(_num(p.get("y")) / 100, 2)
+    return out
+
+
+def _norm_map_index(raw) -> dict:
+    """Kartenverzeichnis aus dem Spiel: Name, Art, übergeordnete Karte, Lage auf dem Kontinent."""
+    idx = _map(raw)
+    maps = {}
+    for k, e in _map(idx.get("maps")).items():
+        e, mid = _map(e), _int(k)
+        if mid <= 0 or not _text(e.get("n")):
+            continue
+        r = [_num(x) / 10000 for x in _list(e.get("r"))]
+        maps[mid] = {"name": _text(e.get("n")), "type": _int(e.get("ty")), "parent": _int(e.get("p")),
+                     "on": _int(e.get("on")), "rect": r if len(r) == 4 and r[1] > r[0] and r[3] > r[2] else None}
+    return {"at": _int(idx.get("at")), "lang": _text(idx.get("lang")), "maps": maps}
 
 
 def link_state_from_dbs(dbs: list[tuple[str, dict]]) -> dict:
@@ -152,7 +192,8 @@ def link_state_from_dbs(dbs: list[tuple[str, dict]]) -> dict:
     st = {"accounts": [], "errors": [], "errorStats": {}, "blocked": [], "addons": {}, "addonsAt": 0,
           "memory": {"t": 0, "total": 0, "list": []}, "wishlist": [], "reports": {}, "chars": {}, "items": {},
           "interface": 0, "addonVersion": "", "writtenAt": 0, "importSeen": 0,
-          "questRewards": {}, "zoneNames": {}, "factionNames": {}, "questGuide": {"on": True, "at": 0}}
+          "questRewards": {}, "zoneNames": {}, "factionNames": {}, "questGuide": {"on": True, "at": 0},
+          "mapIndex": {"at": 0, "lang": "", "maps": {}}}
     seen_wish = set()
     for account, db in dbs:
         g = _map(db.get("global"))
@@ -224,6 +265,9 @@ def link_state_from_dbs(dbs: list[tuple[str, dict]]) -> dict:
                     "choice": [{"id": _int(_map(x).get("id")), "n": _int(_map(x).get("n"), 1), "q": _int(_map(x).get("q"), 1),
                                 "name": _text(_map(x).get("name"))} for x in _list(r.get("choice"))],
                     "spell": _text(r.get("spell"))}
+        mi = _norm_map_index(g.get("mapIndex"))
+        if mi["maps"] and mi["at"] >= st["mapIndex"]["at"]:
+            st["mapIndex"] = mi
         sets = _map(db.get("settings"))
         on = _map(sets.get("modules")).get("QuestGuide")
         at = _int(_map(sets.get("toggledAt")).get("QuestGuide"))

@@ -153,6 +153,9 @@ function STUB.advance(sec)
 		local step = math.min(0.25, stop - STUB.clock)
 		STUB.clock = STUB.clock + step
 		STUB.now = STUB.now + step
+		if STUB.pos and STUB.speed > 0 and STUB.speed < 100 and not STUB.taxi then
+			STUB.pos.x = math.min(0.99, STUB.pos.x + STUB.speed * step / 2000)
+		end
 		for _, t in ipairs(STUB.tickers) do
 			if not t.cancelled and STUB.clock >= t.nextAt - 1e-9 then
 				t.nextAt = t.nextAt + t.every
@@ -223,7 +226,7 @@ function GetSkillLineInfo(i) return unpack(STUB.skills[i]) end
 function GetNumQuestLogEntries() return #STUB.questLog end
 function GetQuestLogTitle(i)
 	local q = STUB.questLog[i]
-	return q.title, q.level, nil, false, false, false, nil, q.id
+	return q.title, q.level, nil, false, false, q.complete, nil, q.id
 end
 function GetQuestID() return STUB.questID end
 -- quest rewards (quest giver and quest log): STUB.reward = { money, xp, items = {{name, n, q, id}}, choice = {...} }
@@ -252,6 +255,70 @@ function GetQuestLogSelection() return STUB.logSelection end
 STUB.completed = {}
 function IsQuestFlaggedCompleted(id) return STUB.completed[id] or false end
 C_Map = { GetAreaInfo = function(id) return STUB.areaNames and STUB.areaNames[id] end }
+-- maps: the player is on STUB.map at STUB.pos and walks east while STUB.speed > 0
+-- (STUB.advance moves him; a zone is 2000 yards wide). No position inside instances.
+STUB.map, STUB.pos = 1433, { x = 0.30, y = 0.50 }
+STUB.mapInfo = {
+	[947] = { name = "Azeroth", mapType = 1 },
+	[1415] = { name = "Östliche Königreiche", mapType = 2, parentMapID = 947 },
+	[1414] = { name = "Kalimdor", mapType = 2, parentMapID = 947 },
+	[1433] = { name = "Rotkammgebirge", mapType = 3, parentMapID = 1415 },
+	[1429] = { name = "Wald von Elwynn", mapType = 3, parentMapID = 1415 },
+	[1411] = { name = "Durotar", mapType = 3, parentMapID = 1414 },
+	[1453] = { name = "Sturmwind", mapType = 3, parentMapID = 1429 },
+}
+STUB.mapRects = { -- child -> on parent: x1, x2, y1, y2
+	[1414] = { 0.05, 0.40, 0.10, 0.90 }, [1415] = { 0.60, 0.95, 0.10, 0.90 },
+	[1433] = { 0.49, 0.57, 0.66, 0.72 }, [1429] = { 0.42, 0.50, 0.70, 0.79 }, [1411] = { 0.55, 0.65, 0.40, 0.55 },
+}
+STUB.mapCalls = 0
+function C_Map.GetBestMapForUnit(u) if u == "player" then return STUB.map end end
+function C_Map.GetPlayerMapPosition(m, u)
+	if u ~= "player" or m ~= STUB.map or STUB.instance[2] ~= "none" or not STUB.pos then return nil end
+	local x, y = STUB.pos.x, STUB.pos.y
+	return { GetXY = function() return x, y end }
+end
+function C_Map.GetMapInfo(id)
+	local i = STUB.mapInfo[id]
+	if i then return { mapID = id, name = i.name, mapType = i.mapType, parentMapID = i.parentMapID or 0 } end
+end
+function C_Map.GetMapChildrenInfo(id, ty, all)
+	STUB.mapCalls = STUB.mapCalls + 1
+	local out = {}
+	local function walk(parent)
+		for mid, i in pairs(STUB.mapInfo) do
+			if i.parentMapID == parent then
+				out[#out + 1] = { mapID = mid, name = i.name, mapType = i.mapType, parentMapID = parent }
+				if all then walk(mid) end
+			end
+		end
+	end
+	walk(id)
+	return out
+end
+function C_Map.GetMapRectOnMap(child, parent)
+	local r = STUB.mapRects[child]
+	if r and STUB.mapInfo[child] and STUB.mapInfo[child].parentMapID == parent then return unpack(r) end
+	return 0, 0, 0, 0
+end
+-- quest log objectives and finished quests (modern API); STUB.questLog[i].o = { { text, finished } }
+C_QuestLog = {
+	GetQuestObjectives = function(id)
+		for _, q in ipairs(STUB.questLog) do
+			if q.id == id then
+				local out = {}
+				for _, o in ipairs(q.o or {}) do out[#out + 1] = { text = o[1], finished = o[2], type = "monster" } end
+				return out
+			end
+		end
+		return {}
+	end,
+	GetAllCompletedQuestIDs = function()
+		local out = {}
+		for id, yes in pairs(STUB.completed) do if yes then out[#out + 1] = id end end
+		return out
+	end,
+}
 function GetFactionInfoByID(id) return STUB.factionNames and STUB.factionNames[id] end
 function GetTitleText() return STUB.questTitle end
 function SetAbandonQuest() end

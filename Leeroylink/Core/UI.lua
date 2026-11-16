@@ -12,7 +12,7 @@ local W, H, LIST_W = 760, 540, 170
 -- Tabs and the modules on them. Modules not listed here land on "Addons".
 local TABS = {
 	{ key = "overview", label = { "Übersicht", "Overview" } },
-	{ key = "session", label = { "Sitzung", "Session" }, mods = { "Session", "LootLog", "Screenshots" } },
+	{ key = "session", label = { "Sitzung", "Session" }, mods = { "Session", "Map", "LootLog", "Screenshots" } },
 	{ key = "quests", label = { "Quests", "Quests" }, mods = { "QuestGuide", "Tasks", "Notes" } },
 	{ key = "chars", label = { "Charaktere", "Characters" }, mods = { "Alts", "Recipes", "Prices" } },
 	{ key = "addons", label = { "Addons", "Addons" }, mods = { "Updates", "ErrorLog", "LoadStatus", "Profiles", "Wishlist", "Memory" } },
