@@ -3,6 +3,23 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.3.0
+
+### New: the map
+A new page **Map** (in the sidebar under *Leeroylink*) shows where you went and what happened there.
+- **Your routes:** Leeroylink 0.9 records your position every few seconds while you play. Each session is a line in its own colour with an arrow at the end; flight paths are dashed, walking as a ghost is dotted. Choose a character and a period (last session, today, 7 or 30 days, everything).
+- **Places:** deaths (with killer and level), level-ups, bosses and rare enemies, rare loot (blue and better), gathering spots (herbs, ore, skinning, fishing), discovered areas, accepted and turned-in quests and screenshots – each with its own symbol. Click a place for details; a screenshot place opens the picture from your *Screenshots* folder.
+- **Replay a route:** *▶ Play* draws a session on the map again, with the places appearing as you reach them. Drag the slider to jump.
+- **Quest layer (with QuestieDB):** your active quests with where their open objectives are (enemies, objects, the mobs that drop quest items, places to explore) and where to turn them in – a grey **?** until all objectives are done, then a golden one. Plus the quests you can pick up here, coloured by difficulty like the quest log. Leeroylink 0.9 sends your quest log and the quests you have already done when you log out. *View quest* opens the quest on the *Quests* page.
+- **Search:** zones, NPCs, objects and quests – the map jumps to the zone with the most spots and marks them; other zones with spots are listed and clickable.
+- **Overview:** each continent shows its zones where they lie in the game (the layout comes from Leeroylink), with your routes on top. Click a zone to open it, click the continent name above the map to go back.
+- **Coordinates** under the mouse, right click copies `/way 42.5 63.1` for TomTom and similar addons. Mouse wheel zooms, dragging moves the map.
+- **Map images** are downloaded from Wowhead once per zone and kept in the data folder. If Wowhead has no image for a zone (for example WoW Forever's new zones), the map shows a grid instead – routes, places and quests still sit where they belong.
+
+### Leeroylink 0.9.0
+- New module **Map** (tab *Session*): records the route and the places of each session, the quest log with objectives, the finished quests and where you logged out, and once a week an index of the game's maps (names in your game language and where each zone lies on its continent). `/lz karte` shows your position and what was recorded this session.
+- Only the newest 15 sessions in the saved variables keep their route (Leeroyzan has imported the older ones long ago), so the file stays small.
+
 ## 2.2.4
 
 ### Leeroylink 0.8.1: better contrast on parchment
