@@ -3,6 +3,10 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.3.1
+
+- **Map: type to pick a zone.** In the zone list (closed or open) a letter jumps to the next zone starting with it – press it again to go through all of them, e.g. `S` → Silithus, Steinkrallengebirge, Schlingendorntal … Hold **Shift** and type the beginning of a name to go straight there, e.g. Shift + `S` `T` `U` → Sturmwind. In the closed field the map opens after a short pause; in the open list Enter or a click picks the zone.
+
 ## 2.3.0
 
 ### New: the map

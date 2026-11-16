@@ -50,6 +50,30 @@ QUALITY = {2: "#1eff00", 3: "#4a9cff", 4: "#c77dff", 5: "#ff8000"}
 ZOOMS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0]   # fein fürs Einpassen, Mausrad springt ≥ 25 %
 MAX_IMAGE_PX = 4200          # größer wird ein Kartenbild nie gerechnet (Speicher)
 REPLAY_FRAMES = 450          # Bilder einer Wiedergabe (bei 40 ms je Bild: 18 s)
+TYPE_DELAY = 400             # ms nach dem letzten Tastendruck, bis die getippte Karte geladen wird
+SHIFT, CONTROL = 0x0001, 0x0004
+
+
+def typeahead(names: list[str], current: int, typed: str, cycle: bool) -> int:
+    """Index des Eintrags, der mit `typed` beginnt (Groß- und Kleinschreibung egal), sonst -1.
+
+    cycle=True (ein Buchstabe, mehrmals gedrückt): der nächste passende nach dem aktuellen, am Ende wieder vorn.
+    cycle=False (mit Umschalt getippter Wortanfang): der aktuelle, wenn er noch passt, sonst der erste passende."""
+    want = (typed or "").casefold()
+    n = len(names)
+    if not want or not n:
+        return -1
+
+    def fits(i):
+        return names[i].casefold().startswith(want)
+    if not cycle and 0 <= current < n and fits(current):
+        return current
+    start = current + 1 if cycle and 0 <= current < n else 0
+    for k in range(n):
+        i = (start + k) % n
+        if fits(i):
+            return i
+    return -1
 
 
 class MapPage:
@@ -94,6 +118,10 @@ class MapPage:
         self.map_zone_cb = ttk.Combobox(bar, textvariable=self.map_zone_var, state="readonly", width=30, height=30)
         self.map_zone_cb.pack(side="left")
         self.map_zone_cb.bind("<<ComboboxSelected>>", lambda e: self._map_zone_picked())
+        self._map_zone_names: list[str] = []
+        self._map_type_buf = ""
+        self._map_type_job = None
+        self._map_typeahead_setup()
         self.map_char_cb = ttk.Combobox(bar, textvariable=self.map_char_var, state="readonly", width=22)
         self.map_char_cb.pack(side="left", padx=(8, 0))
         self.map_char_cb.bind("<<ComboboxSelected>>", lambda e: self._map_filter_changed())
@@ -270,14 +298,17 @@ class MapPage:
     def _map_fill_zones(self):
         idx = self.map_idx
         act = map_activity(self._map_filtered())
-        values, ids = [], []
+        values, ids, names = [], [], []
         for c in idx.continents():
             values.append(tr("{0} – Übersicht", c["name"]))
             ids.append(c["id"])
+            names.append(c["name"])
             for z in idx.zones_on(c["id"]):
                 values.append(("   ● " if z["id"] in act else "      ") + z["name"])
                 ids.append(z["id"])
+                names.append(z["name"])
         self._map_zone_ids = ids
+        self._map_zone_names = names
         self.map_zone_cb.configure(values=values)
         if self.map_ui in ids:
             self.map_zone_cb.current(ids.index(self.map_ui))
@@ -300,6 +331,78 @@ class MapPage:
         i = self.map_zone_cb.current()
         if 0 <= i < len(self._map_zone_ids):
             self.map_show(self._map_zone_ids[i], fit=True)
+
+    # ----- Tippen in der Kartenauswahl ------------------------------------------------------ #
+    def _map_typeahead_setup(self):
+        """Buchstaben tippen springt durch die Kartenliste – im geschlossenen Feld und in der offenen Liste.
+
+        Ein Buchstabe: reihum durch alle Gebiete mit diesem Anfangsbuchstaben. Umschalt gedrückt halten und
+        mehrere Buchstaben tippen: direkt zum Gebiet mit diesem Wortanfang (z. B. „Stu“ -> Sturmwind)."""
+        cb = self.map_zone_cb
+        cb.bind("<KeyPress>", self._map_zone_key)
+        for key in ("<KeyRelease-Shift_L>", "<KeyRelease-Shift_R>", "<FocusOut>"):
+            cb.bind(key, self._map_type_reset, add="+")
+        try:                                           # die Liste beim Aufklappen ist ein eigenes Tk-Fenster
+            popdown = self.tk.call("ttk::combobox::PopdownWindow", str(cb))
+            self._map_zone_lb = f"{popdown}.f.l"
+            key_cmd = self.register(self._map_zone_key_list)
+            reset_cmd = self.register(lambda: self._map_type_reset())
+            self.tk.call("bind", self._map_zone_lb, "<KeyPress>", f"+{key_cmd} %A %s")
+            for key in ("<KeyRelease-Shift_L>", "<KeyRelease-Shift_R>"):
+                self.tk.call("bind", self._map_zone_lb, key, f"+{reset_cmd}")
+        except tk.TclError as e:
+            self._map_zone_lb = ""
+            log.info("Kartenliste: Tippen in der offenen Liste nicht verfügbar: %s", e)
+
+    def _map_type_reset(self, _e=None):
+        self._map_type_buf = ""
+
+    def _map_type_index(self, ch: str, state: int, current: int) -> int | None:
+        """Index für einen Tastendruck; None, wenn die Taste nicht zum Tippen gehört (Strg-Kürzel, Pfeile …)."""
+        if not ch or len(ch) != 1 or not ch.isprintable() or ch.isspace() or state & CONTROL:
+            return None
+        names = self._map_zone_names
+        if state & SHIFT:
+            self._map_type_buf += ch
+            i = typeahead(names, current, self._map_type_buf, cycle=False)
+            if i < 0:                                  # Tippfehler: den letzten Buchstaben vergessen
+                self._map_type_buf = self._map_type_buf[:-1]
+            return i
+        self._map_type_buf = ""
+        return typeahead(names, current, ch, cycle=True)
+
+    def _map_zone_key(self, e):
+        cb = self.map_zone_cb
+        i = self._map_type_index(e.char, e.state, cb.current())
+        if i is None:
+            return None
+        if i >= 0 and i != cb.current():
+            cb.current(i)
+            if self._map_type_job:
+                self.after_cancel(self._map_type_job)
+            self._map_type_job = self.after(TYPE_DELAY, self._map_type_apply)
+        return "break"
+
+    def _map_type_apply(self):
+        self._map_type_job = None
+        i = self.map_zone_cb.current()
+        if 0 <= i < len(self._map_zone_ids) and self._map_zone_ids[i] != self.map_ui:
+            self._map_zone_picked()
+
+    def _map_zone_key_list(self, ch, state):
+        """Tastendruck in der aufgeklappten Liste: markieren und sichtbar machen – Enter oder Klick wählt."""
+        lb = self._map_zone_lb
+        try:
+            sel = self.tk.splitlist(self.tk.call(lb, "curselection"))
+            cur = int(sel[0]) if sel else self.map_zone_cb.current()
+            i = self._map_type_index(ch, int(state), cur)
+            if i is not None and i >= 0:
+                self.tk.call(lb, "selection", "clear", 0, "end")
+                self.tk.call(lb, "selection", "set", i)
+                self.tk.call(lb, "activate", i)
+                self.tk.call(lb, "see", i)
+        except (tk.TclError, ValueError) as e:
+            log.info("Kartenliste: %s", e)
 
     def map_refresh(self):
         """Neue Daten aus dem Spiel (nach dem Ausloggen): neu laden, Ansicht behalten."""
