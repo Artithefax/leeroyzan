@@ -84,6 +84,7 @@ class CommonMixin:
             self.info(tr("Bitte warten, bis „{0}“ fertig ist – sonst ändert Leeroyzan Addons, während WoW sie lädt.",
                          self.busy_label))
             return
+        self.auto_update_link(quiet=True)          # WoW soll gleich das aktuelle Leeroylink laden
         try:
             flags = 0x00000008 | 0x00000200 if sys.platform.startswith("win") else 0  # losgelöst
             proc = subprocess.Popen([str(exe)], cwd=str(exe.parent), close_fds=True, creationflags=flags,

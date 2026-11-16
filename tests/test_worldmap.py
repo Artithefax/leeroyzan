@@ -62,16 +62,26 @@ class FakeDB:
             55: q(name="Grey one", lvl=2, start={"npc": [240], "obj": [], "item": []}),
             56: q(name="Elsewhere", lvl=10, start={"npc": [999], "obj": [], "item": []}),
         }
+        # Wachposten: NPC -> (Titel, Art, freundlich zu)
+        self.service = {1300: ("Journeyman Tailor", 16 | 1, "A"), 1301: ("Expert Tailor", 16, "H"), 1302: ("Mage Trainer", 16, "AH"),
+                        1303: ("Weaponsmith", 4 | 16384, "A"), 1304: ("Innkeeper", 128 | 4, "AH"), 1305: ("Transmogrifier", 1, "AH"),
+                        1306: ("Weapon Master", 16, "A"), 240: ("", 2, "A")}
         self.npcs = {240: ("Marshal Dughan", {12: [[42.1, 65.9]]}), 448: ("Hogger", {12: [[25.0, 92.9]]}),
+                     1300: ("Lawrence", {1519: [[53.5, 81.5], [53.6, 81.6]]}), 1301: ("Snang", {1637: [[63, 50]]}),
+                     1302: ("Jennea", {1519: [[49.5, 85.8]]}), 1303: ("Marda", {1519: [[64, 68]]}),
+                     1304: ("Farley", {12: [[43.8, 65.8]]}), 1305: ("Fyrenz", {1519: [[48, 84.6]]}),
+                     1306: ("Woo Ping", {1519: [[57, 57]]}),
                      478: ("Riverpaw Outrunner", {12: [[26.0, 86.0], [27.0, 87.5]], 40: [[50, 50]]}),
                      963: ("Deputy Rainer", {12: [[24.2, 74.4]]}), 999: ("Somebody", {14: [[50, 50]]})}
-        self.objects = {68: ("Wanted Poster", {12: [[42.0, 65.5]]}), 1731: ("Copper Vein", {12: [[30, 30], [31, 31]], 40: [[10, 10]]})}
+        self.objects = {68: ("Wanted Poster", {12: [[42.0, 65.5]]}), 1731: ("Copper Vein", {12: [[30, 30], [31, 31]], 40: [[10, 10]]}),
+                        900: ("Mailbox", {1519: [[60, 70]], 12: [[43, 66]]})}
         self.items = {1931: {2: [448]}}
         self.triggers = {50: ["Explore the lake", {12: [[60.0, 50.0]]}]}
 
     def row(self, kind, eid, fields):
         if kind == "Npc" and eid in self.npcs:
-            return {1: self.npcs[eid][0], 7: self.npcs[eid][1]}
+            sub, flags, friendly = self.service.get(eid, ("", 0, ""))
+            return {1: self.npcs[eid][0], 7: self.npcs[eid][1], 13: friendly or None, 14: sub or None, 15: flags}
         if kind == "Object" and eid in self.objects:
             return {1: self.objects[eid][0], 4: self.objects[eid][1]}
         if kind == "Item":
@@ -81,7 +91,7 @@ class FakeDB:
         return None
 
     def npc(self, nid, locale):
-        return {"id": nid, "name": self.npcs[nid][0], "sub": ""} if nid in self.npcs else None
+        return {"id": nid, "name": self.npcs[nid][0], "sub": self.service.get(nid, ("",))[0]} if nid in self.npcs else None
 
     def obj_name(self, oid, locale):
         return self.objects.get(oid, (f"#{oid}",))[0]
@@ -327,6 +337,29 @@ class QuestLayerTests(unittest.TestCase):
         self.assertTrue(L["note"])
         self.assertEqual(M.quest_layer(None, self.idx, 1429, self.char(), "enUS")["active"], [])
 
+    def test_guide(self):
+        g = M.guide_index(self.db)
+        self.assertEqual(g["prof:tailoring"], [("npc", 1300), ("npc", 1301)])
+        self.assertEqual(g["class:MAGE"], [("npc", 1302)])
+        self.assertEqual(g["vendor:repair"], [("npc", 1303)])
+        self.assertEqual(g["vendor:weapons"], [("npc", 1303)])
+        self.assertEqual(g["service:inn"], [("npc", 1304)])
+        self.assertEqual(g["vendor:food"], [("npc", 1304)])
+        self.assertEqual(g["service:transmog"], [("npc", 1305)])
+        self.assertEqual(g["service:weaponmaster"], [("npc", 1306)])
+        self.assertEqual(g["service:mailbox"], [("object", 900)])
+        self.assertEqual(g["prof:blacksmithing"], [], "a weaponsmith who only sells is no trainer")
+        self.assertTrue(all(key in M.GUIDE_NAMES for key in g))
+        ally = M.guide_places(self.db, self.idx, "prof:tailoring", "A", "enUS")
+        self.assertEqual([(p["name"], p["sub"], p["ui"], p["x"]) for p in ally], [("Lawrence", "Journeyman Tailor", 1453, 53.5)],
+                         "my faction only, one place per NPC")
+        self.assertEqual(len(M.guide_places(self.db, self.idx, "prof:tailoring", "", "enUS")), 2)
+        boxes = M.guide_places(self.db, self.idx, "service:mailbox", "A", "enUS")
+        self.assertEqual(sorted(p["ui"] for p in boxes), [1429, 1453])
+        near = M.nearest_first([{"name": "b", "x": 10, "y": 10}, {"name": "a", "x": 50, "y": 50}], 48, 52)
+        self.assertEqual([p["name"] for p in near], ["a", "b"])
+        self.assertEqual([p["name"] for p in M.nearest_first(near, None, None)], ["a", "b"])
+
     def test_colors(self):
         self.assertEqual([M.quest_color(q, 20) for q in (26, 23, 21, 16, 10)], ["red", "orange", "yellow", "green", "gray"])
 
@@ -483,6 +516,24 @@ class MapPageTests(unittest.TestCase):
             app._map_zone_key_list("w", "0")
             sel = app.tk.splitlist(app.tk.call(app._map_zone_lb, "curselection"))
             self.assertTrue(names[int(sel[0])].lower().startswith("w"), sel)
+            # Wachposten ohne QuestieDB: Hinweis statt Fehler
+            app.map_guide_show("service:inn")
+            self.assertIn("QuestieDB", app.map_text.get("1.0", "end"))
+            # Leeroylink veraltet: Hinweis auf der Karte, und Leeroyzan aktualisiert es von selbst
+            toc = wow / "_forever_" / "Interface" / "AddOns" / "Leeroylink" / "Leeroylink.toc"
+            bundled = lz.link_version(lz.bundled_link_dir())
+            toc.write_text(toc.read_text(encoding="utf-8").replace(f"## Version: {bundled}", "## Version: 0.8.1"), encoding="utf-8")
+            self.assertEqual(app.link_outdated(), ("0.8.1", bundled))
+            app._map_sel = None
+            app._map_intro()
+            self.assertIn("0.8.1", app.map_text.get("1.0", "end"))
+            app.cfg["self_update_mode"] = "ask"
+            self.assertFalse(app.auto_update_link(), "not when updates are set to ask")
+            app.cfg["self_update_mode"] = "auto"
+            self.assertTrue(app.auto_update_link())
+            self.assertEqual(lz.link_version(lz.installed_link_dir(str(wow), "_forever_")), bundled)
+            self.assertEqual(app.link_outdated(), ("", ""))
+            self.assertFalse(app.auto_update_link())
             # Filter und Ebenen
             app.map_period_cb.current(0)
             app._map_filter_changed()

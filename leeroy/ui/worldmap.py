@@ -12,7 +12,7 @@ import tkinter as tk
 from ..config import log
 from ..i18n import cur_lang, tr
 from ..mapdata import (
-    DEFAULT_MAP_SIZE, PERIODS, ZoneIndex, clear_image_misses, filter_sessions, map_activity, map_image, map_search,
+    DEFAULT_MAP_SIZE, GUIDE_GROUPS, GUIDE_NAMES, PERIODS, ZoneIndex, guide_places, nearest_first, clear_image_misses, filter_sessions, map_activity, map_image, map_search,
     parse_route, pin_title, quest_layer, read_questie_zone_maps, scaled_map_image, screenshot_for, session_pins,
     session_routes, way_command, zone_for_char,
 )
@@ -27,15 +27,15 @@ from .theme import THEME
 MAP_LAYERS = [
     ("route", "Wege", "#e6bb70", "〰"),
     ("death", "Tode", "#e0524a", "✝"),
-    ("level", "Stufenaufstiege", "#ffd54a", "▲"),
-    ("boss", "Bosse und seltene Gegner", "#c77dff", "☠"),
-    ("loot", "Seltene Beute", "#4a9cff", "◆"),
-    ("gather", "Sammelpunkte", "#7ddc6a", "✿"),
+    ("level", "Stufen", "#ffd54a", "▲"),
+    ("boss", "Bosse", "#c77dff", "☠"),
+    ("loot", "Beute", "#4a9cff", "◆"),
+    ("gather", "Sammeln", "#7ddc6a", "✿"),
     ("found", "Entdeckt", "#4fc3d9", "⚑"),
-    ("quests", "Angenommen und abgegeben", "#d6c37a", "!"),
+    ("quests", "Quest-Orte", "#d6c37a", "!"),
     ("shot", "Screenshots", "#c8ccca", "◉"),
-    ("q_active", "Aktive Quests", "#ffd100", "?"),
-    ("q_avail", "Verfügbare Quests", "#ffd100", "!"),
+    ("q_active", "Questziele", "#ffd100", "?"),
+    ("q_avail", "Neue Quests", "#ffd100", "!"),
 ]
 LAYER_OF_PIN = {"death": "death", "level": "level", "boss": "boss", "rare": "boss", "loot": "loot", "gather": "gather",
                 "found": "found", "qa": "quests", "qd": "quests", "shot": "shot"}
@@ -112,34 +112,39 @@ class MapPage:
         self._map_seq = 0
         self._map_loaded_key = None
         self._map_search_hits: list[dict] = []
+        self._map_guide = None             # Wachposten: {"key", "label", "places": [...]} – bleibt beim Kartenwechsel
 
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=(12, 0))
-        self.map_zone_cb = ttk.Combobox(bar, textvariable=self.map_zone_var, state="readonly", width=30, height=30)
+        self.map_zone_cb = ttk.Combobox(bar, textvariable=self.map_zone_var, state="readonly", width=26, height=30)
         self.map_zone_cb.pack(side="left")
         self.map_zone_cb.bind("<<ComboboxSelected>>", lambda e: self._map_zone_picked())
         self._map_zone_names: list[str] = []
         self._map_type_buf = ""
         self._map_type_job = None
         self._map_typeahead_setup()
-        self.map_char_cb = ttk.Combobox(bar, textvariable=self.map_char_var, state="readonly", width=22)
+        self.map_char_cb = ttk.Combobox(bar, textvariable=self.map_char_var, state="readonly", width=18)
         self.map_char_cb.pack(side="left", padx=(8, 0))
         self.map_char_cb.bind("<<ComboboxSelected>>", lambda e: self._map_filter_changed())
-        self.map_period_cb = ttk.Combobox(bar, textvariable=self.map_period_var, state="readonly", width=16,
+        self.map_period_cb = ttk.Combobox(bar, textvariable=self.map_period_var, state="readonly", width=14,
                                           values=[tr(v) for v in PERIODS.values()])
         self.map_period_cb.pack(side="left", padx=(8, 0))
         self.map_period_cb.bind("<<ComboboxSelected>>", lambda e: self._map_filter_changed())
         for text, cmd in (("⤢", self.map_fit), ("−", lambda: self.map_zoom_step(-1)), ("+", lambda: self.map_zoom_step(1))):
             ttk.Button(bar, text=text, width=3, command=cmd).pack(side="right", padx=(4, 0))
-        se = ttk.Entry(bar, textvariable=self.map_search_var, width=30)
+        gb = ttk.Menubutton(bar, text=tr("Wachposten"), width=15)
+        gb.pack(side="left", padx=(8, 0))
+        gb["menu"] = self._map_guide_menu(gb)
+        self.map_guide_btn = gb
+        se = ttk.Entry(bar, textvariable=self.map_search_var, width=16)
         se.pack(side="right", padx=(8, 4))
         se.bind("<Return>", lambda e: self.map_search())
-        Placeholder(se, self.map_search_var, tr("Suchen: Zone, NPC, Quest …"))
+        Placeholder(se, self.map_search_var, tr("Suchen …"))
         self.map_search_entry = se
 
         body = ttk.Frame(page)
         body.pack(fill="both", expand=True, pady=(10, 0))
-        side = ttk.Frame(body, width=310)
+        side = ttk.Frame(body, width=352)
         side.pack(side="right", fill="y", padx=(12, 0))
         side.pack_propagate(False)
         left = ttk.Frame(body)
@@ -169,9 +174,14 @@ class MapPage:
         # Ebenen
         lbox = self._card_box(side, pady=(0, 0), title=tr("Ebenen"))
         self._map_layer_labels = {}
-        for key, name, color, glyph in MAP_LAYERS:
-            row = ttk.Frame(lbox, style="Panel.TFrame")
-            row.pack(fill="x")
+        grid = ttk.Frame(lbox, style="Panel.TFrame")
+        grid.pack(fill="x")
+        grid.columnconfigure(0, weight=1, uniform="layers")
+        grid.columnconfigure(1, weight=1, uniform="layers")
+        half = (len(MAP_LAYERS) + 1) // 2
+        for i, (key, name, color, glyph) in enumerate(MAP_LAYERS):
+            row = ttk.Frame(grid, style="Panel.TFrame")
+            row.grid(row=i % half, column=i // half, sticky="ew")
             tk.Label(row, text=glyph, fg=color, bg=t["panel"], width=2, font=self.fonts["base"]).pack(side="left")
             cb = ttk.Checkbutton(row, text=tr(name), variable=self.map_layer_vars[key], command=self._map_layers_changed)
             cb.pack(side="left", fill="x", expand=True)
@@ -199,11 +209,161 @@ class MapPage:
         self.map_text.tag_bind("link", "<Leave>", lambda e: self.map_text.configure(cursor=""))
         self._map_intro()
 
+    # ----- Wachposten ------------------------------------------------------------------------ #
+    def _map_guide_menu(self, parent) -> tk.Menu:
+        t = THEME
+        style = {"tearoff": False, "bg": t["panel"], "fg": t["text"], "activebackground": t["gold_deep"],
+                 "activeforeground": t["text"], "bd": 0, "font": self.fonts["base"]}
+        menu = tk.Menu(parent, **style)
+        for group, items in GUIDE_GROUPS:
+            sub = tk.Menu(menu, **style)
+            for key, name in items:
+                sub.add_command(label=tr(name), command=lambda k=key: self.map_guide_show(k))
+            menu.add_cascade(label=tr(group), menu=sub)
+        menu.add_separator()
+        menu.add_command(label=tr("Ausblenden"), command=self.map_guide_clear)
+        return menu
+
+    def map_guide_show(self, key: str):
+        """Wie die Wachen in den Städten, nur für jede Karte: zeigt, wo es Lehrer, Händler und Dienste gibt."""
+        if self.map_idx is None:
+            return
+        if self.map_db is None:
+            self._map_detail([(tr("Wachposten") + "\n", "title"),
+                              (getattr(self, "_map_db_note", "") or tr("Dafür braucht Leeroyzan QuestieDB (unter „Entdecken“ installieren)."), "dim")])
+            return
+        char = self._map_char() or {}
+        side = {"Alliance": "A", "Horde": "H"}.get(char.get("faction", ""), "")
+        db, idx, locale, seq = self.map_db, self.map_idx, self._map_locale(), self._map_seq
+        self.map_status_var.set(tr("Suche …"))
+
+        def done(res, err):
+            if seq != self._map_seq:
+                return
+            if err:
+                log.warning("Wachposten: %s", err)
+                self._map_status()
+                return
+            self._map_guide = {"key": key, "label": tr(GUIDE_NAMES.get(key, key)), "places": res, "side": side}
+            self.map_guide_btn.configure(text=tr(GUIDE_NAMES.get(key, key)))
+            here = [p for p in res if p["ui"] == self.map_ui]
+            if not here and res and not self.map_idx.is_continent(self.map_ui):
+                cont = self.map_idx.continent_of(self.map_ui)           # nichts hier: die Übersicht zeigt, wo
+                if cont and any(self.map_idx.continent_of(p["ui"]) == cont for p in res):
+                    self.map_show(cont, fit=True)
+            self._map_sel = None
+            self.map_redraw()
+            self._map_status()
+            self._map_guide_list()
+        self.run_quiet(lambda: guide_places(db, idx, key, side, locale), done)
+
+    def map_guide_clear(self):
+        self._map_guide = None
+        self.map_guide_btn.configure(text=tr("Wachposten"))
+        self._map_intro()
+        self.map_redraw()
+
+    def _map_guide_here(self) -> list[dict]:
+        g = self._map_guide
+        if not g:
+            return []
+        here = [p for p in g["places"] if p["ui"] == self.map_ui]
+        pos = (self._map_char() or {}).get("pos") or {}
+        if pos.get("m") == self.map_ui:
+            return nearest_first(here, pos.get("x"), pos.get("y"))
+        return nearest_first(here, None, None)
+
+    def _map_guide_list(self):
+        """Liste rechts: die Fundorte auf dieser Karte (nächster zuerst) und die anderen Karten."""
+        g = self._map_guide
+        if not g:
+            return
+        idx = self.map_idx
+        here = self._map_guide_here()
+        parts = [(g["label"] + "\n", "title")]
+        if g.get("side"):
+            parts.append((tr("für die Allianz") if g["side"] == "A" else tr("für die Horde"), "dim"))
+            parts.append(("\n", ""))
+        if idx.is_continent(self.map_ui):
+            n = sum(1 for p in g["places"] if idx.continent_of(p["ui"]) == self.map_ui)
+            parts.append((tr("{0} auf {1}", n, idx.name(self.map_ui)) + "\n", ""))
+        elif not here:
+            parts.append((tr("Nichts davon in {0}.", idx.name(self.map_ui)) + "\n", "dim"))
+        self._map_detail(parts, [(tr("Ausblenden"), self.map_guide_clear)])
+        txt = self.map_text
+        txt.configure(state="normal")
+        for k, p in enumerate(here[:60]):
+            tag = f"guide{k}"
+            txt.insert("end", p["name"], ("link", tag))
+            txt.insert("end", f"  {p['sub']}  " if p["sub"] else "  ", "dim")
+            txt.insert("end", f"{p['x']:.1f}, {p['y']:.1f}\n", "dim")
+            txt.tag_bind(tag, "<Button-1>", lambda e, q=p: self._map_select(("guide", q)))
+        counts: dict[int, int] = {}
+        for p in g["places"]:
+            if p["ui"] != self.map_ui:
+                counts[p["ui"]] = counts.get(p["ui"], 0) + 1
+        if counts:
+            cont = self.map_ui if idx.is_continent(self.map_ui) else idx.continent_of(self.map_ui)
+            order = sorted(counts, key=lambda u: (idx.continent_of(u) != cont, idx.name(u).lower()))
+            txt.insert("end", "\n" + (tr("Auch auf:") if here else tr("Zu finden auf:")) + "\n", "dim")
+            for k, u in enumerate(order[:60]):
+                tag = f"gzone{k}"
+                txt.insert("end", idx.name(u), ("link", tag))
+                txt.insert("end", f" ({counts[u]})\n", "dim")
+                txt.tag_bind(tag, "<Button-1>", lambda e, u=u: self._map_guide_goto(u))
+        txt.configure(state="disabled")
+
+    def _map_guide_goto(self, ui: int):
+        self.map_show(ui, fit=True)
+
+    def _map_draw_guide(self):
+        g = self._map_guide
+        if not g:
+            return
+        cv, idx = self.map_cv, self.map_idx
+        if idx.is_continent(self.map_ui):
+            for p in g["places"]:
+                z = idx.get(p["ui"])
+                if not z or not z.get("rect") or idx.continent_of(p["ui"]) != self.map_ui:
+                    continue
+                r = z["rect"]
+                x, y = self._xy((r[0] + p["x"] / 100 * (r[1] - r[0])) * 100, (r[2] + p["y"] / 100 * (r[3] - r[2])) * 100)
+                item = cv.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#ffffff", outline="#101615", width=1)
+                self._map_hit[item] = ("zone", z)
+            return
+        sel = self._map_sel[1] if self._map_sel and self._map_sel[0] == "guide" else None
+        for p in self._map_guide_here():
+            x, y = self._xy(p["x"], p["y"])
+            big = p is sel
+            r = 11 if big else 8
+            item = cv.create_oval(x - r, y - r, x + r, y + r, fill="#ffffff", outline="#ffd100" if big else "#101615", width=3 if big else 2)
+            dot = cv.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#101615", outline="")
+            self._map_hit[item] = self._map_hit[dot] = ("guide", p)
+
     def _map_intro(self):
-        self._map_detail([(tr("Die Karte zeigt, wo du unterwegs warst und was dort passiert ist – aufgezeichnet von "
-                              "Leeroylink in jeder Sitzung. Mit QuestieDB kommen deine Quests dazu: offene Ziele, "
-                              "Abgabe und Quests, die du annehmen kannst."), "dim"),
-                          ("\n\n" + tr("Mausrad: zoomen · Ziehen: verschieben · Rechtsklick: /way kopieren"), "dim")])
+        parts, acts = [], []
+        have, bundled = self.link_outdated()
+        recorded = any((s_.get("map") or {}).get("segs") or (s_.get("map") or {}).get("pins") for s_ in self.map_sessions)
+        if have:
+            parts.append((tr("Leeroylink {0} ist installiert", have) + "\n", "title"))
+            parts.append((tr("Wege, Orte und deine Questliste zeichnet erst Leeroylink {0} auf. Aktualisiere das Addon "
+                             "(WoW muss dafür geschlossen sein), spiele und logge dich aus – dann erscheint hier, wo du "
+                             "warst.", bundled) + "\n\n", ""))
+            acts.append((tr("Leeroylink aktualisieren"), self._map_update_link))
+        elif self.map_idx is not None and not recorded:
+            parts.append((tr("Noch keine Wege aufgezeichnet") + "\n", "title"))
+            parts.append((tr("Leeroylink zeichnet deinen Weg beim Spielen auf. Nach dem nächsten Ausloggen erscheinen "
+                             "hier Wege, Orte und deine Quests.") + "\n\n", ""))
+        parts.append((tr("Die Karte zeigt, wo du unterwegs warst und was dort passiert ist – aufgezeichnet von "
+                         "Leeroylink in jeder Sitzung. Mit QuestieDB kommen deine Quests dazu: offene Ziele, "
+                         "Abgabe und Quests, die du annehmen kannst."), "dim"))
+        parts.append(("\n\n" + tr("„Wachposten“ zeigt auf jeder Karte, wo es Lehrer, Händler und Dienste gibt."), "dim"))
+        parts.append(("\n\n" + tr("Mausrad: zoomen · Ziehen: verschieben · Rechtsklick: /way kopieren"), "dim"))
+        self._map_detail(parts, acts)
+
+    def _map_update_link(self):
+        self.install_link()
+        self.after(1500, lambda: self._map_sel is None and self._map_guide is None and self._map_intro())
 
     # ----- Daten laden ----------------------------------------------------------------------- #
     def map_open(self, force: bool = False):
@@ -255,6 +415,8 @@ class MapPage:
                 conts = self.map_idx.continents()
                 ui = conts[0]["id"] if conts else 0
             self.map_show(ui, fit=True)
+            if self._map_sel is None and self._map_guide is None:
+                self._map_intro()
         self.run_quiet(load, done)
 
     def _map_char(self) -> dict | None:
@@ -433,6 +595,8 @@ class MapPage:
         self._map_compute()
         if not idx.is_continent(ui):
             self._map_load_image(ui)
+        if self._map_guide:
+            self._map_guide_list()
 
     def _map_crumbs(self):
         idx, ui = self.map_idx, self.map_ui
@@ -658,6 +822,7 @@ class MapPage:
             return
         if self.map_idx.is_continent(self.map_ui):
             self._map_draw_continent()
+            self._map_draw_guide()
             return
         self._map_draw_background()
         on = {k: v.get() for k, v in self.map_layer_vars.items()}
@@ -674,6 +839,7 @@ class MapPage:
             pins = [p for p in pins if p["sid"] == rp["sid"] and p["t"] <= rp["cur"]]
             self._map_draw_replay()
         self._map_draw_pins(pins)
+        self._map_draw_guide()
         self._map_draw_player()
         self._map_draw_highlights()
 
@@ -869,7 +1035,7 @@ class MapPage:
             hit = self._map_hit.get(item)
             if hit is None:
                 continue
-            rank = {"pin": 0, "qend": 1, "qavail": 2, "player": 2, "qspot": 3, "zone": 4, "route": 5}.get(hit[0], 9)
+            rank = {"guide": 0, "pin": 0, "qend": 1, "qavail": 2, "player": 2, "qspot": 3, "zone": 4, "route": 5}.get(hit[0], 9)
             if best is None or rank < best[0]:
                 best = (rank, hit)
         return best[1] if best else None
@@ -931,6 +1097,8 @@ class MapPage:
         kind = hit[0]
         if kind == "pin":
             return pin_title(hit[1])
+        if kind == "guide":
+            return hit[1]["name"] + (f" – {hit[1]['sub']}" if hit[1]["sub"] else "")
         if kind in ("qspot", "qend", "qavail"):
             q = hit[1]
             pre = {"qspot": "", "qend": tr("Abgabe: "), "qavail": tr("Verfügbar: ")}[kind]
@@ -1017,6 +1185,15 @@ class MapPage:
                 else:
                     parts.append((tr("Die Bilddatei liegt nicht (mehr) im Screenshots-Ordner.") + "\n", "dim"))
             acts.append((tr("/way kopieren"), lambda x=p["x"], y=p["y"]: self._map_copy(way_command(x, y))))
+        elif kind == "guide":
+            p = hit[1]
+            parts.append((p["name"] + "\n", "title"))
+            if p["sub"]:
+                parts.append((p["sub"] + "\n", ""))
+            parts.append((f"{self.map_idx.name(self.map_ui)}  {p['x']:.1f}, {p['y']:.1f}\n", "dim"))
+            acts.append((tr("/way kopieren"), lambda x=p["x"], y=p["y"]: self._map_copy(way_command(x, y))))
+            acts.append((tr("Wowhead ↗"), lambda k=p["kind"], w=p["id"]: self._map_wowhead(k, w)))
+            acts.append((tr("Zur Liste"), self._map_guide_list))
         elif kind in ("qspot", "qend", "qavail"):
             q, name, (x, y) = hit[1], hit[2], hit[3]
             parts.append((f"[{q['lvl']}] {q['title']}\n", "title"))

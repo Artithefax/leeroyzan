@@ -360,27 +360,63 @@ if PART == 1 then
 	local list, pos = QG:Chain(7)
 	check(#list == 4 and list[1] == 783 and list[4] == 18 and pos == 2, "quest chain built: " .. table.concat(list, ","))
 	STUB.factionNames = { [72] = "Sturmwind" }
+	-- an extension of the quest log and the quest giver's window: a tab, nothing opens by itself
+	local giverFrame = CreateFrame("Frame", "QuestFrame")
+	local logFrame = CreateFrame("Frame", "QuestLogFrame")
+	logFrame:Hide()
 	STUB.fire("QUEST_DETAIL")
+	check(not (_G.LeeroylinkQuestGuide and _G.LeeroylinkQuestGuide.shown), "nothing opens by itself at the quest giver")
+	local giverHost, logHost
+	for _, h in ipairs(QG:Hosts()) do
+		if h.kind == "giver" then giverHost = h elseif h.kind == "log" then logHost = h end
+	end
+	check(giverHost and logHost and giverHost.frame == giverFrame, "quest giver window and quest log are extended")
+	check(giverHost.tab.shown and not logHost.tab.shown, "the tab shows at the open window with a known quest only")
+	giverHost.tab.scripts.OnClick(giverHost.tab)
 	local win = _G.LeeroylinkQuestGuide
-	check(win and win.shown, "window opens at the quest giver (own frame)")
+	check(win and win.shown and QG:DockedTo() == giverHost, "a click on the tab opens the companion, docked")
+	check(win.points[1][1] == "TOPLEFT" and win.points[1][2] == giverFrame and win.points[1][3] == "TOPRIGHT", "docked to the right of the quest giver window")
+	giverHost.tab.scripts.OnClick(giverHost.tab)
+	check(not win.shown, "a second click closes it")
+	giverHost.tab.scripts.OnClick(giverHost.tab)
 	local txt = QG:Text(783)
 	for _, want in ipairs({ "Teil 1 von 4", "Säuberung im Koboldlager", "Rekrutenhemd", "40 XP", "Sturmwind +50", "Bis zum Ende der Reihe (4 Quests)", "760 XP", "Bei: Marshal McBride" }) do
 		check(txt:find(want, 1, true), "companion text has: " .. want)
 	end
 	check(QG:Text(7):find("Briefe nach Goldhain", 1, true) and not QG:Text(7):find("Nur für die Horde", 1, true), "branches of my faction only")
 	STUB.fire("QUEST_FINISHED")
-	check(not win.shown, "auto-opened window closes with the quest giver")
+	giverFrame:Hide()
+	check(not win.shown and not giverHost.tab.shown, "window and tab close with the quest giver")
 	-- quest log: any quest log selects through SelectQuestLogEntry
 	STUB.questLog[#STUB.questLog + 1] = { title = "Säuberung im Koboldlager", level = 2, id = 7 }
 	STUB.reward = { money = 75, items = {}, choice = { { name = "Stiefel", q = 2, id = 2000 }, { name = "Handschuhe", q = 2, id = 2001 } } }
+	logFrame:Show()
 	SelectQuestLogEntry(#STUB.questLog)
-	check(win.shown and LZ.gdb.questRewards[7] and #LZ.gdb.questRewards[7].choice == 2, "quest log selection shows and remembers rewards")
+	check(not win.shown and LZ.gdb.questRewards[7] and #LZ.gdb.questRewards[7].choice == 2, "quest log selection remembers rewards and opens nothing")
+	check(logHost.tab.shown, "the tab shows at the quest log")
+	logHost.tab.scripts.OnClick(logHost.tab)
+	check(win.shown and QG:DockedTo() == logHost and win.points[1][2] == logFrame, "tab at the quest log opens it docked there")
+	STUB.questLog[#STUB.questLog + 1] = { title = "Briefe nach Goldhain", level = 3, id = 17 }
+	SelectQuestLogEntry(#STUB.questLog)
+	check(win.shown and QG:Shown() == 17, "an open companion follows the selection in the quest log")
+	table.remove(STUB.questLog)
+	SelectQuestLogEntry(#STUB.questLog)
+	logFrame:Hide()
+	check(not win.shown, "it closes with the quest log")
+	QG.opt.autoGiver = true
+	giverFrame:Show()
+	STUB.fire("QUEST_DETAIL")
+	check(win.shown, "option: open by itself at quest givers")
+	STUB.fire("QUEST_FINISHED")
+	giverFrame:Hide()
+	QG.opt.autoGiver = nil
+	win:Show()
 	check(QG:Text(783):find("Stiefel", 1, true) and QG:Text(783):find("75", 1, true), "remembered rewards of a follow-up quest are shown")
 	STUB.completed[783] = true
 	check(QG:Text(7):find("(erledigt)", 1, true), "completed quests are marked")
 	win:Hide()
 	LZ:HandleSlash("quest echokammmine")
-	check(win.shown, "/lz quest <name> opens the window")
+	check(win.shown and QG:DockedTo() == nil and win.points[1][2] == UIParent, "/lz quest <name> opens the window at its own place")
 	-- rewards that no character has seen yet come from the data file (cMaNGOS / QuestieDB)
 	LeeroylinkQuests.items = { [2589] = { "Leinenstoff", 1 }, [6085] = { "Fußsoldatentunika", 2 }, [6084] = { "Gamaschen", 2 }, [270000] = { "Fackel", 1 } }
 	local t15 = QG:Text(15)

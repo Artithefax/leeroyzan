@@ -3,6 +3,25 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.4.0
+
+### Fixed: the map stayed empty
+- Routes and places were missing because the game was still running **Leeroylink 0.8.1** – the map needs 0.9 or newer, and the update of the addon had to be clicked by hand. **Leeroyzan now updates Leeroylink itself** when a newer version comes with it: at startup and before *Play* starts WoW, only while WoW is closed, and only if updates are set to *Install automatically* (otherwise the hint with the button stays).
+- The map page now says so when the installed Leeroylink is too old (with an *Update Leeroylink* button) or when nothing has been recorded yet.
+
+### New: Guard – where do I find …?
+Like the guards in the cities, but for every map: the **Guard** menu on the map page lists class trainers, profession trainers, vendors (repair, general goods, reagents, food and drink, trade supplies, weapons, armor, bags, poisons) and services (inn, bank, auction house, flight master, stable master, mailbox, transmogrifier, barber, guild master, tabards, battlemaster, weapon master).
+- Pick an entry and the map marks everyone on the current map; the list on the right has names, titles and coordinates (nearest to your character's last position first) and the other zones that have one. If the current zone has none, the map switches to the continent overview and shows where they are.
+- Only NPCs friendly to the selected character's faction. A click gives `/way` and the Wowhead page. The choice stays while you change maps until you pick *Hide*.
+- The data comes from QuestieDB (what kind of NPC it is and its title).
+
+### Map
+- The layer list is more compact (two columns), so the *Selection* box has room for lists.
+
+### Leeroylink 0.10.0: the quest companion extends the quest log
+- The quest companion **no longer opens by itself**. Instead the quest log (the classic one and the one attached to the map) and the quest giver's window get a tab **Quest chain** whenever the shown quest is known. A click opens the companion docked beside that window; it follows the quest you select and closes together with the window. A second click closes it.
+- Options in the Leeroylink window: show the tab, dock the window, and – off by default – open by itself at quest givers. `/lz quest` still opens it as a free window.
+
 ## 2.3.1
 
 - **Map: type to pick a zone.** In the zone list (closed or open) a letter jumps to the next zone starting with it – press it again to go through all of them, e.g. `S` → Silithus, Steinkrallengebirge, Schlingendorntal … Hold **Shift** and type the beginning of a name to go straight there, e.g. Shift + `S` `T` `U` → Sturmwind. In the closed field the map opens after a short pause; in the open list Enter or a click picks the zone.
