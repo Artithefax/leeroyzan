@@ -112,11 +112,12 @@ def _style_base(style: ttk.Style, t: dict, fonts: dict) -> None:
     style.configure("Primary.TButton", background=t["btn_primary"], foreground=t["btn_text"],
                     bordercolor=t["gold"], lightcolor=t["btn_primary"],
                     darkcolor=t["btn_primary"], font=fonts["bold"])
-    style.map("Primary.TButton",
-              background=[("pressed", t["btn_primary"]), ("active", t["btn_primary_hi"])],
-              foreground=[("active", t["btn_text"])],
-              lightcolor=[("active", t["btn_primary_hi"])],
-              darkcolor=[("active", t["btn_primary_hi"])])
+    style.map("Primary.TButton",       # ausgegraut wie die anderen Knöpfe, damit es nicht klickbar aussieht
+              background=[("disabled", t["panel"]), ("pressed", t["btn_primary"]), ("active", t["btn_primary_hi"])],
+              foreground=[("disabled", t["text_faint"]), ("active", t["btn_text"])],
+              bordercolor=[("disabled", t["border"])],
+              lightcolor=[("disabled", t["panel"]), ("active", t["btn_primary_hi"])],
+              darkcolor=[("disabled", t["panel"]), ("active", t["btn_primary_hi"])])
 
     # Spielen-Button in der Kopfzeile: Bronze mit Goldrand
     style.configure("Play.TButton", background=t["btn_primary"], foreground=t["btn_text"],
