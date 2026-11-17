@@ -27,8 +27,9 @@ if HAS_DISPLAY:
     import guide_fixture
     import talent_fixture as tf
     import leeroy.api as lz
-    from leeroy import guides, images, talents
+    from leeroy import buildsearch, guides, images, talents
     from test_builds import GUIDE_URL, JPEG, tid
+    from test_buildsearch import FakeWowhead, hub_page, search_page
 
 LINK = "https://www.wowhead.com/forever/de/talent-calc/shaman/"
 
@@ -43,7 +44,11 @@ class BuildsPageTests(unittest.TestCase):
         for f in guides.guides_dir().glob("*.json") if guides.guides_dir().is_dir() else []:
             f.unlink()
         self.patched = [(talents, "wowhead_text", talents.wowhead_text), (guides, "wowhead_text", guides.wowhead_text),
-                        (images, "wowhead_bytes", images.wowhead_bytes)]
+                        (images, "wowhead_bytes", images.wowhead_bytes), (buildsearch, "wowhead_text", buildsearch.wowhead_text)]
+        self.web = FakeWowhead({"/guides/classes/shaman": hub_page(), "/search?q=Shaman": search_page()})
+        buildsearch.wowhead_text = lambda url, timeout=20: self.web(url)
+        for f in (lz.config_dir() / "wowhead").glob("guide-index-*.json"):
+            f.unlink()
         talents.wowhead_text = lambda url, timeout=20: tf.talents_js()
         guides.wowhead_text = lambda url, timeout=20: guide_fixture.guide_html()
         images.wowhead_bytes = lambda url, timeout=20: JPEG
@@ -159,6 +164,65 @@ class BuildsPageTests(unittest.TestCase):
         app.gd_delete()
         self.assertEqual(app.gd_rows, [])
         self.assertIn("No guide saved yet", app.gd_text.get("1.0", "end"))
+        self.assertEqual(self.errors, [], "\n".join(self.errors))
+
+    def test_search(self):
+        app = self.app
+        self.pump(lambda: app.bld_build is not None)
+        # Tippen eines Klassennamens (mit Tippfehler) startet die Suche nach einer kurzen Pause
+        app.bld_link_var.set("scharmane")
+        app._bs_typed()
+        self.pump(lambda: app.bs_result is not None and app.bld_view == "search", 4)
+        self.assertEqual(app.bld_view, "search")
+        self.assertIn("Schamane", app.bs_info_var.get())
+        tv = app.bs_tree
+        rows = tv.get_children()
+        self.assertEqual(rows[0], "h:leveling", "leveling first, with a heading row")
+        self.assertIn("h:pvp", rows)
+        chips = [w.cget("text") for w in app.bs_chips.winfo_children()]
+        self.assertEqual(chips[0], "Alle (6)")
+        self.assertIn("Leveling (2)", chips)
+        # Vorschau des ersten Guides: Builds mit Überschrift, Klick öffnet im Planer
+        self.pump(lambda: bool(app.bs_builds), 4)
+        text = app.bs_preview.get("1.0", "end")
+        self.assertIn("Best Talent Builds", text)
+        self.assertIn("18/25/8", text, "points of the build")
+        self.assertEqual(str(app.bs_open_btn.cget("state")), "normal")
+        # Zweck wählen
+        app._bs_chip("pvp")
+        self.assertEqual([app.bs_rows[i]["cat"] for i in tv.get_children() if not i.startswith("h:")], ["pvp"])
+        app._bs_chip("")
+        # Guide speichern
+        app.bs_save_guide()
+        self.assertEqual(len(guides.list_guides()), 1)
+        # Enter mit Zweck: gefiltert, aus dem Cache (kein neuer Abruf)
+        asked = len(self.web.asked)
+        app.bld_link_var.set("Schamane PvP")
+        app.bld_paste()
+        self.pump(lambda: (app.bs_result or {}).get("query", {}).get("cat") == "pvp", 3)
+        self.assertEqual(len(self.web.asked), asked)
+        self.assertEqual(app.bs_cat, "pvp")
+        # Build öffnen
+        self.pump(lambda: bool(app.bs_builds), 4)
+        app.bs_open_first()
+        self.pump(lambda: app.bld_view == "planner" and app.bld_build.spent == 51)
+        self.assertEqual(app.bld_build.summary(), "18/25/8")
+        # nichts gefunden und Beispiele
+        app.bs_search("Hogger")
+        self.pump(lambda: (app.bs_result or {}).get("query", {}).get("rest") == "hogger", 3)
+        self.assertIn("Nichts gefunden", app.bs_preview.get("1.0", "end"))
+        app.bs_result = None
+        app._bs_fill()
+        self.assertIn("Druide Tank", app.bs_preview.get("1.0", "end"))
+        # Links werden weiter geladen statt gesucht
+        app.bld_link_var.set(LINK + tf.GUIDE_HASH + "/" + tf.GUIDE_ORDER)
+        app.bld_paste()
+        self.pump(lambda: app.bld_view == "planner")
+        app.change_language("en")
+        app.bld_set_view("search")
+        app.bs_search("shaman healer")
+        self.pump(lambda: (app.bs_result or {}).get("query", {}).get("role") == "healer", 3)
+        self.assertIn("Healer", app.bs_info_var.get())
         self.assertEqual(self.errors, [], "\n".join(self.errors))
 
     def test_wowhead_unreachable(self):

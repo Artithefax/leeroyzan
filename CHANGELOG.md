@@ -3,6 +3,19 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.5.0
+
+### New: find builds
+The **Builds** page has a new view **Find builds** and the field at the top now searches as well: type a class – *Schamane*, *shaman*, even *scharmane* – and Leeroyzan lists the Wowhead guides for it, sorted into **Leveling, Dungeons & Raids, PvP, Talents & builds, Gear, Playstyle** and **Overview**, each with its specialization and role.
+- Add what you are looking for: a specialization (*Verstärkung*, *resto*, *Tierherrschaft*), a purpose (*Leveling*, *Dungeon*, *Raid*, *PvP*, *BiS*) or a role (*Tank*, *Heiler*, *DPS*) – in German or English. *Schamane Leveling*, *Druide Tank*, *Priester Heiler Dungeon* all work. The buttons above the list switch between the purposes.
+- Typing a class name starts the search by itself after a short pause; links still work as before (talent calculator → planner, guide → saved).
+- Selecting a guide loads it as a preview: its summary and all **talent builds in it, each with its heading** (e.g. *Leveling – Level 10-20*) and its points (*0/31/20*). A click opens a build in the talent planner; *Save guide* keeps the guide for offline reading.
+- Follows the edition chosen in the talent planner (WoW Forever, Classic …). Season of Discovery guides only show up when the search contains *sod*.
+- Wowhead has no public interface for guides, so Leeroyzan reads them from the class's guide overview, the Wowhead search and – if that yields little – the navigation inside the guides. Results are kept for a day; without internet the last result is shown. If Wowhead returns nothing, *Search on Wowhead ↗* opens the page in the browser.
+
+### Other
+- Disabled main buttons are greyed out now instead of looking clickable.
+
 ## 2.4.0
 
 ### Fixed: the map stayed empty

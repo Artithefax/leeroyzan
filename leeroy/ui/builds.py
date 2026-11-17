@@ -9,11 +9,12 @@ import tkinter as tk
 
 from ..i18n import tr
 from ..config import log, save_config
+from ..buildsearch import CATEGORIES, ROLES, describe_query, filter_guides, find_guides, log_result, parse_query, spec_name, titled_builds
 from ..guides import delete_guide, fetch_guide, guide_builds, is_guide_url, list_guides, load_guide, render_guide, save_guide
 from ..images import background_url, cached_image, can_convert, fetch_images, icon_url
 from ..reports import QUALITY_COLORS
 from ..talents import TALENT_EDITIONS, Build, load_talents, parse_build_link, talent_class, talent_classes
-from ..wowhead import wowhead_base
+from ..wowhead import wowhead_base, wowhead_search_url
 from .dialogs import Placeholder
 from .discordshare import DISCORD_BTN
 from .theme import THEME
@@ -28,7 +29,8 @@ GREY = "#6a6a6a"
 class BuildsPage:
     """Teil des Hauptfensters (wird in App eingemischt)."""
 
-    BUILD_VIEWS = (("planner", "Talentplaner"), ("guides", "Guides"))
+    BUILD_VIEWS = (("planner", "Talentplaner"), ("search", "Builds finden"), ("guides", "Guides"))
+    SEARCH_DELAY = 700           # ms nach dem Tippen eines Klassennamens, bis die Suche von selbst startet
 
     # --- Aufbau ----------------------------------------------------------------------- #
     def _page_builds(self):
@@ -62,14 +64,16 @@ class BuildsPage:
             b = ttk.Button(row, text=tr(label), command=lambda k=key: self.bld_set_view(k))
             b.pack(side="left", padx=(0 if not i else 6, 0))
             self.bld_view_btns[key] = b
-        ttk.Button(row, text=tr("Laden"), style="Primary.TButton", command=self.bld_paste).pack(side="right")
+        ttk.Button(row, text=tr("Suchen"), style="Primary.TButton", command=self.bld_paste).pack(side="right")
         self.bld_link_entry = ttk.Entry(row, textvariable=self.bld_link_var)
         self.bld_link_entry.pack(side="right", fill="x", expand=True, padx=(16, 8))
-        Placeholder(self.bld_link_entry, self.bld_link_var, tr("Wowhead-Link einfügen: Talentrechner oder Guide"))
+        Placeholder(self.bld_link_entry, self.bld_link_var, tr("Builds suchen (z. B. Schamane Leveling) oder Wowhead-Link einfügen"))
         self.bld_link_entry.bind("<Return>", lambda e: self.bld_paste())
+        self.bld_link_entry.bind("<KeyRelease>", self._bs_typed, add="+")
 
-        self.bld_frames = {"planner": ttk.Frame(page), "guides": ttk.Frame(page)}
+        self.bld_frames = {"planner": ttk.Frame(page), "search": ttk.Frame(page), "guides": ttk.Frame(page)}
         self._bld_planner(self.bld_frames["planner"])
+        self._bs_build(self.bld_frames["search"])
         self._bld_guides(self.bld_frames["guides"])
         self.bld_set_view(self.bld_view, save=False)
 
@@ -188,6 +192,9 @@ class BuildsPage:
         """Beim Zeigen der Seite: Talentdaten laden (einmal je Ausgabe) bzw. die Guide-Liste füllen."""
         if self.bld_view == "guides":
             self._gd_fill()
+        elif self.bld_view == "search":
+            if not self.bld_data or self.bld_data.get("edition") != self.bld_edition:
+                self._bld_load_data()              # für die Punkte-Übersicht der Builds in der Vorschau
         elif not self.bld_data or self.bld_data.get("edition") != self.bld_edition:
             self._bld_load_data()
         else:
@@ -317,13 +324,20 @@ class BuildsPage:
         return self.bld_link_var.get().strip()
 
     def bld_paste(self):
-        """Link aus dem Feld (oder der Zwischenablage): Talentrechner -> Planer, Guide -> speichern."""
+        """Feld (oder Zwischenablage): Talentrechner-Link -> Planer, Guide-Link -> speichern, sonst Builds suchen."""
         text = self._bld_link_text()
         if not text:
             try:
                 text = self.clipboard_get().strip()
             except tk.TclError:
                 text = ""
+            if not text.lower().startswith(("http://", "https://")):
+                self.bld_set_view("search")
+                self.bld_link_entry.focus_set()
+                return
+        if not text.lower().startswith(("http://", "https://", "www.")):
+            self.bs_search(text)
+            return
         if is_guide_url(text) and "talent-calc" not in text:
             self.gd_add(text)
         elif "talent-calc" in text and parse_build_link(text):
@@ -671,8 +685,16 @@ class BuildsPage:
 
     def _bld_link_click(self, txt, event):
         tags = txt.tag_names(txt.index(f"@{event.x},{event.y}"))
-        target = next((x for x in tags if x.startswith(("url:", "build:"))), "")
-        if target.startswith("build:") and self.gd_current:
+        target = next((x for x in tags if x.startswith(("url:", "build:", "sbuild:", "bsx:"))), "")
+        if target.startswith("sbuild:"):
+            builds = self.bs_builds
+            i = int(target[7:])
+            if i < len(builds):
+                self.bld_open_link(builds[i]["link"], edition=builds[i]["edition"] or self.bld_edition)
+        elif target.startswith("bsx:"):
+            self.bld_link_var.set(target[4:])
+            self.bs_search(target[4:])
+        elif target.startswith("build:") and self.gd_current:
             builds = guide_builds(self.gd_current)
             i = int(target[6:])
             if i < len(builds):
@@ -715,3 +737,318 @@ class BuildsPage:
             return
         delete_guide(gid)
         self._gd_fill()
+
+    # --- Builds finden ------------------------------------------------------------------ #
+    def _bs_build(self, frame):
+        self.bs_result: dict | None = None
+        self.bs_text = ""
+        self.bs_cat = ""                          # gewählter Zweck ("" = alle)
+        self.bs_rows: dict[str, dict] = {}        # Zeilen-ID -> Guide
+        self.bs_guides: dict[str, dict] = {}      # Adresse -> geladener Guide
+        self.bs_current: dict | None = None
+        self.bs_builds: list[dict] = []
+        self.bs_seq = 0
+        self.bs_type_job = None
+        self.bs_info_var = tk.StringVar()
+        bar = ttk.Frame(frame)
+        bar.pack(fill="x", pady=(10, 0))
+        cb = ttk.Combobox(bar, textvariable=self.bld_ed_var, state="readonly", width=24,
+                          values=[tr(label) for label, _ in TALENT_EDITIONS.values()])
+        cb.pack(side="left")
+        cb.bind("<<ComboboxSelected>>", lambda e: self._bs_edition_changed())
+        ttk.Label(bar, textvariable=self.bs_info_var, style="Body.TLabel", width=1).pack(side="left", fill="x", expand=True, padx=(12, 0))
+        self.bs_web_btn = ttk.Button(bar, text=tr("Auf Wowhead suchen ↗"), command=self.bs_open_web)
+        self.bs_web_btn.pack(side="right")
+        self.bs_reload_btn = ttk.Button(bar, text=tr("Neu laden"), command=lambda: self.bs_search(self.bs_text, refresh=True))
+        self.bs_reload_btn.pack(side="right", padx=(0, 6))
+        self.bs_chips = ttk.Frame(frame)
+        self.bs_chips.pack(fill="x", pady=(8, 0))
+        body = ttk.Frame(frame)
+        body.pack(fill="both", expand=True, pady=(8, 0))
+        left = ttk.Frame(body, width=560)
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
+        lf, self.bs_tree = self._list(left, (("title", tr("Guide")), ("spec", tr("Spezialisierung")), ("role", tr("Rolle"))),
+                                      (330, 150, 70), stretch=("title",))
+        lf.pack(fill="both", expand=True)
+        t = THEME
+        self.bs_tree.tag_configure("head", foreground=t["gold"], font=self.fonts["bold"], background=t["bg"])
+        self.bs_tree.bind("<<TreeviewSelect>>", lambda e: self._bs_selected())
+        self.bs_tree.bind("<Double-1>", lambda e: self.bs_open_first())
+        self.bs_tree.bind("<Return>", lambda e: self.bs_open_first())
+        box = self._card_box(body, pady=(0, 0), side="left", fill="both", expand=True, padx=(14, 0), title=tr("Vorschau"))
+        btns = ttk.Frame(box, style="Panel.TFrame")
+        btns.pack(side="bottom", fill="x", pady=(10, 0))
+        self.bs_open_btn = ttk.Button(btns, text=tr("Build im Planer öffnen"), style="Primary.TButton", command=self.bs_open_first,
+                                      state="disabled")
+        self.bs_open_btn.pack(side="left")
+        self.bs_save_btn = ttk.Button(btns, text=tr("Guide speichern"), command=self.bs_save_guide, state="disabled")
+        self.bs_save_btn.pack(side="left", padx=(6, 0))
+        self.bs_wh_btn = ttk.Button(btns, text=tr("Wowhead ↗"), command=self.bs_open_guide, state="disabled")
+        self.bs_wh_btn.pack(side="right")
+        tf, self.bs_preview = self._text(box, height=8)
+        tf.pack(fill="both", expand=True)
+        self._bld_tags(self.bs_preview)
+        self._bs_intro()
+
+    def _bs_intro(self):
+        if self.bs_result is None:
+            self.bs_info_var.set("")
+        txt = self.bs_preview
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+        txt.insert("end", tr("Builds finden") + "\n", "title")
+        txt.insert("end", tr("Gib oben eine Klasse ein – Leeroyzan sucht die Guides von Wowhead dazu und ordnet sie nach "
+                             "Leveling, Dungeons & Raids, PvP, Ausrüstung und mehr. Spezialisierung, Zweck und Rolle "
+                             "kannst du dazuschreiben, auch auf Englisch. Die Talent-Builds eines Guides öffnest du mit "
+                             "einem Klick im Talentplaner.") + "\n\n", "")
+        txt.insert("end", tr("Zum Beispiel:") + "\n", "dim")
+        for ex in (tr("Schamane"), tr("Krieger Leveling"), tr("Druide Tank"), tr("Priester Heiler Dungeon"), tr("Magier PvP")):
+            txt.insert("end", "  ▸ ", "dim")
+            txt.insert("end", ex + "\n", ("ent", f"bsx:{ex}", "link"))
+        txt.configure(state="disabled")
+        for b in (self.bs_open_btn, self.bs_save_btn, self.bs_wh_btn):
+            b.configure(state="disabled")
+
+    def _bs_typed(self, e=None):
+        """Beim Tippen: Ist eine Klasse erkennbar, startet die Suche nach einer kurzen Pause von selbst."""
+        if self.bs_type_job:
+            self.after_cancel(self.bs_type_job)
+            self.bs_type_job = None
+        text = self._bld_link_text()
+        if e is not None and getattr(e, "keysym", "") in ("Return", "KP_Enter", "Escape"):
+            return
+        if len(text) < 4 or text.lower().startswith(("http", "www.")) or not parse_query(text)["cls"]:
+            return
+        self.bs_type_job = self.after(self.SEARCH_DELAY, lambda: self._bs_auto(text))
+
+    def _bs_auto(self, text: str):
+        self.bs_type_job = None
+        if text == self._bld_link_text() and text != self.bs_text:
+            self.bs_search(text)
+
+    def _bs_edition_changed(self):
+        self._bld_edition_changed()
+        if self.bs_text:
+            self.bs_search(self.bs_text)
+
+    def bs_search(self, text: str, refresh: bool = False):
+        text = (text or "").strip()
+        if not text:
+            return
+        if self.bs_type_job:
+            self.after_cancel(self.bs_type_job)
+            self.bs_type_job = None
+        if self.bld_view != "search":
+            self.bld_set_view("search")
+        q = parse_query(text)
+        self.bs_text, self.bs_cat = text, q["cat"]
+        self.bs_seq += 1
+        seq, edition = self.bs_seq, self.bld_edition
+        what = describe_query(q)
+        self.bs_info_var.set(tr("Suche „{0}“ bei Wowhead …", what or text))
+        self.bs_reload_btn.configure(state="disabled")
+
+        def done(res, err):
+            if seq != self.bs_seq:
+                return
+            self.bs_reload_btn.configure(state="normal")
+            if err:
+                log.warning("Build-Suche %s: %s", text, err)
+                self.bs_result = None
+                self._bs_fill()
+                self.bs_info_var.set(tr("Wowhead ist gerade nicht erreichbar ({0}).", str(err)[:100]))
+                return
+            log_result(text, res)
+            self.bs_result = res
+            self._bs_fill()
+        self.run_quiet(lambda: find_guides(text, edition, refresh=refresh), done)
+
+    def _bs_visible(self) -> list[dict]:
+        res = self.bs_result
+        if not res:
+            return []
+        q = dict(res["query"], cat="")
+        out = filter_guides(res["guides"], q)
+        if self.bs_cat:
+            out = filter_guides(out, {"cat": self.bs_cat})
+        return out
+
+    def _bs_fill(self):
+        for w in self.bs_chips.winfo_children():
+            w.destroy()
+        tv = self.bs_tree
+        tv.delete(*tv.get_children())
+        self.bs_rows = {}
+        res = self.bs_result
+        if not res:
+            self._bs_intro()
+            return
+        q = res["query"]
+        base = filter_guides(res["guides"], dict(q, cat=""))
+        counts = {}
+        for g in base:
+            counts[g["cat"]] = counts.get(g["cat"], 0) + 1
+        chips = [("", tr("Alle"), len(base))] + [(k, tr(name), counts[k]) for k, name in CATEGORIES if counts.get(k)]
+        if self.bs_cat and self.bs_cat != "talents" and not counts.get(self.bs_cat):
+            self.bs_cat = ""
+        for key, name, n in chips:
+            on = key == self.bs_cat
+            ttk.Button(self.bs_chips, text=f"{name} ({n})", style="ToggleOn.TButton" if on else "ToggleOff.TButton",
+                       command=lambda k=key: self._bs_chip(k)).pack(side="left", padx=(0, 6))
+        shown = self._bs_visible()
+        what = describe_query(q) or self.bs_text
+        if res["offline"]:
+            info = tr("{0}: {1} Guides (gespeicherter Stand – Wowhead gerade nicht erreichbar)", what, len(shown))
+        else:
+            info = tr("{0}: {1} Guides von Wowhead", what, len(shown))
+        self.bs_info_var.set(info)
+        cat_names = dict(CATEGORIES)
+        last_cat = None
+        first = ""
+        for i, g in enumerate(shown):
+            if g["cat"] != last_cat:
+                last_cat = g["cat"]
+                tv.insert("", "end", iid=f"h:{g['cat']}", values=(tr(cat_names[g["cat"]]).upper(), "", ""), tags=("head",))
+            iid = f"g{i}"
+            self.bs_rows[iid] = g
+            tv.insert("", "end", iid=iid, values=(g["title"], spec_name(g["cls"], g["spec"]) if g["spec"] else tr("alle"),
+                                                  tr(ROLES[g["role"]]) if g["role"] else ""), tags=("odd",) if i % 2 else ())
+            first = first or iid
+        if first:
+            tv.selection_set(first)
+            tv.see(f"h:{shown[0]['cat']}")
+        else:
+            self._bs_empty()
+
+    def _bs_empty(self):
+        txt = self.bs_preview
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+        q = (self.bs_result or {}).get("query") or {}
+        txt.insert("end", tr("Nichts gefunden") + "\n", "title")
+        if not q.get("cls"):
+            txt.insert("end", tr("Leeroyzan sucht nach Klassen: Schreib eine Klasse dazu, z. B. „Schamane“ oder „Druide Tank“.")
+                       + "\n\n", "")
+        else:
+            txt.insert("end", tr("Wowhead hat zu „{0}“ gerade keine passenden Guides geliefert. Über „Auf Wowhead suchen ↗“ "
+                                 "siehst du die Seite selbst.", self.bs_text) + "\n\n", "")
+        txt.configure(state="disabled")
+        for b in (self.bs_open_btn, self.bs_save_btn, self.bs_wh_btn):
+            b.configure(state="disabled")
+
+    def _bs_chip(self, key: str):
+        self.bs_cat = key
+        self._bs_fill()
+
+    def _bs_selected(self):
+        sel = self.bs_tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        if iid.startswith("h:"):                       # Überschrift: zum ersten Guide darunter
+            kids = list(self.bs_tree.get_children())
+            nxt = kids.index(iid) + 1
+            if nxt < len(kids) and not kids[nxt].startswith("h:"):
+                self.bs_tree.selection_set(kids[nxt])
+            return
+        g = self.bs_rows.get(iid)
+        if not g:
+            return
+        self.bs_current = g
+        self.bs_builds = []
+        self._bs_preview(g, None)
+        guide = self.bs_guides.get(g["url"])
+        if guide:
+            self._bs_preview(g, guide)
+            return
+        seq = self.bs_seq
+
+        def done(guide, err):
+            if self.bs_current is not g or seq != self.bs_seq:
+                return
+            if err or not guide:
+                log.info("Guide-Vorschau %s: %s", g["url"], err)
+                self._bs_preview(g, None, error=str(err or "")[:140])
+                return
+            self.bs_guides[g["url"]] = guide
+            self._bs_preview(g, guide)
+        self.run_quiet(lambda: fetch_guide(g["url"]), done)
+
+    def _bs_preview(self, g: dict, guide: dict | None, error: str = ""):
+        txt = self.bs_preview
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+        txt.insert("end", ((guide or {}).get("title") or g["title"]) + "\n", "title")
+        meta = [tr(dict(CATEGORIES)[g["cat"]])]
+        if g["spec"]:
+            meta.append(spec_name(g["cls"], g["spec"]))
+        if g["role"]:
+            meta.append(tr(ROLES[g["role"]]))
+        author = (guide or {}).get("author") or g.get("author")
+        if author:
+            meta.append(tr("von {0}", author))
+        updated = (guide or {}).get("updated") or g.get("updated")
+        if updated:
+            meta.append(tr("Stand {0}", updated))
+        txt.insert("end", "  ·  ".join(meta) + "\n\n", "dim")
+        self.bs_builds = titled_builds(guide) if guide else []
+        if guide is None and not error:
+            txt.insert("end", tr("Lade den Guide von Wowhead …") + "\n", "dim")
+        elif error:
+            txt.insert("end", tr("Der Guide ließ sich nicht laden ({0}).", error) + "\n", "warn")
+        else:
+            if guide.get("summary"):
+                txt.insert("end", guide["summary"] + "\n\n", "")
+            if self.bs_builds:
+                txt.insert("end", tr("Talent-Builds in diesem Guide") + "\n", "h3")
+                for i, b in enumerate(self.bs_builds):
+                    label = b["label"] or tr("Build {0}", i + 1)
+                    points = self._bs_points(b)
+                    txt.insert("end", "▶ " + label, ("build", f"sbuild:{i}", "link"))
+                    txt.insert("end", (f"   {points}" if points else "") + "\n", "dim")
+                txt.insert("end", "\n" + tr("Klick auf einen Build öffnet ihn im Talentplaner.") + "\n", "dim")
+            else:
+                txt.insert("end", tr("Dieser Guide enthält keinen Talent-Build zum Öffnen – lies ihn auf Wowhead oder speichere ihn.")
+                           + "\n", "dim")
+        txt.configure(state="disabled")
+        txt.yview_moveto(0)
+        self.bs_open_btn.configure(state="normal" if self.bs_builds else "disabled")
+        self.bs_save_btn.configure(state="normal" if guide else "disabled")
+        self.bs_wh_btn.configure(state="normal")
+
+    def _bs_points(self, b: dict) -> str:
+        """Punkteverteilung („0/31/20“), wenn die Talentdaten der Ausgabe geladen sind."""
+        data = self.bld_data
+        if not data or data.get("edition") != (b["edition"] or self.bld_edition):
+            return ""
+        try:
+            return Build(data, b["cls"], data["edition"]).load(b["hash"], b["order"]).summary()
+        except Exception:  # noqa – Build passt nicht zu den Daten: dann ohne Punkte
+            return ""
+
+    def bs_open_first(self):
+        if self.bs_builds:
+            b = self.bs_builds[0]
+            self.bld_open_link(b["link"], edition=b["edition"] or self.bld_edition)
+
+    def bs_save_guide(self):
+        g = self.bs_current
+        guide = self.bs_guides.get(g["url"]) if g else None
+        if not guide:
+            return
+        gid = save_guide(guide)
+        self.set_status(tr("Guide gespeichert: {0}", guide.get("title", "")))
+        self.gd_rows = list_guides()
+        self._bs_saved_id = gid
+
+    def bs_open_guide(self):
+        if self.bs_current:
+            self.open_link(self.bs_current["url"])
+
+    def bs_open_web(self):
+        q = (self.bs_result or {}).get("query") or parse_query(self.bs_text)
+        if q.get("cls"):
+            self.open_link(f"{wowhead_base(self.bld_edition)}/guides/classes/{q['cls']}")
+        else:
+            self.open_link(wowhead_search_url(self.bld_edition, self.bs_text or ""))
