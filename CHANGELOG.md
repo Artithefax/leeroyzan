@@ -3,7 +3,7 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
-## 2.6.0
+## 2.5.1
 
 ### Leeroylink 0.11.0: switch to a friend's layer
 WoW Forever no longer lets addons see which layer you are on: since the hotfix of 20 November Blizzard scrambles the realm in NPC IDs and hides the realm name, on purpose, so that nobody can pick "layer 3" any more. Leeroylink does not try to get around that. What still works is the game's own rule – whoever joins a group moves to the layer of its members and keeps it after leaving – and that is what the new **Layer switch** does for you:

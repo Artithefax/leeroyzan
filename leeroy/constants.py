@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 APP_NAME = "Leeroyzan"
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.5.1"
 USER_AGENT = f"Leeroyzan/{APP_VERSION}"
 # Selbst-Update über GitHub-Releases dieses Repos
 UPDATE_REPO = "Artithefax/leeroyzan"
