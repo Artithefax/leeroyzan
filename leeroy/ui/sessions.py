@@ -298,8 +298,11 @@ class SessionsPage:
                 self._sess_pending[s["id"]] = s
             if res["errors"]:
                 log.warning("Leeroylink: %s", "; ".join(res["errors"]))
-            if changed:
-                log.info("Sitzungen übernommen: %d neu, %d aktualisiert", len(res["new"]), len(res["updated"]))
+            if res.get("renamed"):
+                log.info("Sitzungen dem richtigen Charakter zugeordnet (Name-Forever): %d", res["renamed"])
+            if changed or res.get("renamed"):
+                if changed:
+                    log.info("Sitzungen übernommen: %d neu, %d aktualisiert", len(res["new"]), len(res["updated"]))
                 if self.current_page == "sessions":
                     self.refresh_sessions_page()
             if self._sess_pending and not res["running"]:

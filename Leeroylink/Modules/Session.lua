@@ -181,7 +181,7 @@ local function newSession()
 	return {
 		v = VERSION, id = LZ.charKey .. ":" .. t, char = LZ.charKey,
 		name = UnitName and UnitName("player") or nil,
-		realm = GetRealmName and GetRealmName() or nil,
+		realm = LZ.realm,
 		class = class, race = race, faction = UnitFactionGroup and UnitFactionGroup("player") or nil,
 		addon = LZ.version, interface = C.InterfaceVersion(), lang = LZ.lang,
 		start = t, stop = t, saved = t, played = 0, resumes = 0,

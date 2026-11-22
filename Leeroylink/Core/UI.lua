@@ -14,7 +14,7 @@ local TABS = {
 	{ key = "overview", label = { "Übersicht", "Overview" } },
 	{ key = "session", label = { "Sitzung", "Session" }, mods = { "Session", "Map", "LootLog", "Screenshots" } },
 	{ key = "quests", label = { "Quests", "Quests" }, mods = { "QuestGuide", "Tasks", "Notes" } },
-	{ key = "chars", label = { "Charaktere", "Characters" }, mods = { "Alts", "Recipes", "Prices" } },
+	{ key = "chars", label = { "Charaktere", "Characters" }, mods = { "Alts", "Recipes", "Prices", "LayerHop" } },
 	{ key = "addons", label = { "Addons", "Addons" }, mods = { "Updates", "ErrorLog", "LoadStatus", "Profiles", "Wishlist", "Memory" } },
 	{ key = "settings", label = { "Einstellungen", "Settings" }, mods = { "LeeroyMode", "Automation" } },
 }

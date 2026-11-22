@@ -3,6 +3,21 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.6.0
+
+### Leeroylink 0.11.0: switch to a friend's layer
+WoW Forever no longer lets addons see which layer you are on: since the hotfix of 20 November Blizzard scrambles the realm in NPC IDs and hides the realm name, on purpose, so that nobody can pick "layer 3" any more. Leeroylink does not try to get around that. What still works is the game's own rule – whoever joins a group moves to the layer of its members and keeps it after leaving – and that is what the new **Layer switch** does for you:
+- `/lz layer` (or *Characters → Layer switch → Open window*) lists your online Battle.net friends in WoW Forever, friends and guild mates – with zone, who is here, and who has Leeroylink. A click on **Switch** next to a name, or `/lz layer <name>`, asks that player's Leeroylink for an invite.
+- Their Leeroylink asks them first (*Invite / Decline*); with the option *invite them without asking* it invites right away. Only friends, Battle.net friends and guild mates can ask, and nobody can while you are in combat, in an instance or in a group you do not lead.
+- Your Leeroylink accepts that one invite by itself, waits a few seconds (`/lz layer wait <sec>`, default 6) and leaves the group again – you stay on their layer. If they are in another zone, it keeps the group until you get there, because the layer only changes in their zone. It only ever leaves a group it joined for a switch.
+- Both players need Leeroylink 0.11 or newer; without it the other player can simply invite you by hand. If nothing changes, Blizzard does not allow another switch right now – wait a few minutes.
+- Options under *Settings*: accept automatically, leave automatically, let friends and guild switch to your layer, invite them without asking.
+
+### Fixed: characters split in two since the Forever hotfix
+- Since 20 November WoW Forever gives addons an empty realm name, and Leeroylink 0.10 saved everything new under *Name-Forever* – a second character next to the real one (alts, checklists, recipes, sessions).
+- Leeroylink 0.11 takes the realm the character was saved under before (a new character gets the realm last played on this account), moves what was saved under *Name-Forever* back to it once and says so in the chat. Counters add up, lists are joined, newer values win.
+- Leeroyzan renames the sessions it had already archived under *Name-Forever* the same way after the next logout – without counting them as new or posting them to Discord again.
+
 ## 2.5.0
 
 ### New: find builds
