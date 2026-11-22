@@ -147,6 +147,31 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(len(lz.load_sessions("_forever_")), 1)
         make_wow(self.sv_text)
 
+    def test_placeholder_sessions_renamed(self):
+        """Was Leeroylink 0.10 ohne Realm unter „Name-Forever“ gespeichert hat, landet beim richtigen Charakter."""
+        root = str(self.wow)
+        lz.import_link_sessions(root, "_forever_")
+        s = lz.load_sessions("_forever_")[0]
+        old = {k: v for k, v in s.items() if not k.startswith("_")}
+        old["char"], old["realm"] = "Rosenbert-Forever", "Forever"
+        Path(s["_file"]).unlink()
+        lz.save_session("_forever_", old)
+        self.assertEqual({x["char"] for x in lz.load_sessions("_forever_")}, {"Rosenbert-Forever"})
+        aliases = '["global"] = {\n["charAliases"] = {\n["Rosenbert-Forever"] = "Rosenbert-CAMWOWEU5Realm2PvP",\n},'
+        make_wow(self.sv_text.replace('["global"] = {', aliases, 1))
+        try:
+            r = lz.import_link_sessions(root, "_forever_")
+        finally:
+            make_wow(self.sv_text)
+        self.assertEqual(r["renamed"], 1)
+        self.assertEqual(r["new"] + r["updated"], [], "no second copy of the session")
+        stored = lz.load_sessions("_forever_")
+        self.assertEqual(len(stored), 1)
+        self.assertEqual((stored[0]["char"], stored[0]["realm"]), ("Rosenbert-CAMWOWEU5Realm2PvP", "CAMWOWEU5Realm2PvP"))
+        self.assertIn("Rosenbert-CAMWOWEU5Realm2PvP", Path(stored[0]["_file"]).name)
+        again = lz.import_link_sessions(root, "_forever_")
+        self.assertEqual(again["renamed"], 0)
+
     def test_report_texts(self):
         lz.import_link_sessions(str(self.wow), "_forever_")
         s = lz.load_sessions("_forever_")[0]

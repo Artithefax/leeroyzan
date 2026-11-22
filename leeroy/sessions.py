@@ -413,10 +413,62 @@ def delete_session(flavor: str, s: dict) -> None:
         fh.write(s["id"] + "\n")
 
 
+def char_aliases(dbs: list[tuple[str, dict]]) -> dict[str, str]:
+    """Charaktere, die Leeroylink umbenannt hat: {"Name-Forever": "Name-Realm"} (WoW Forever verbirgt seit dem
+    20.11.2026 den Realm; Leeroylink 0.10 hat solange unter dem Platzhalter gespeichert)."""
+    out = {}
+    for _account, db in dbs:
+        for old, new in _map(_map(db.get("global")).get("charAliases")).items():
+            if isinstance(old, str) and isinstance(new, str) and old and new and old != new and "-" in new:
+                out[old] = new
+    return out
+
+
+def _apply_alias(s: dict, aliases: dict[str, str]) -> bool:
+    new = aliases.get(s.get("char"))
+    if not new:
+        return False
+    name, _, realm = new.partition("-")
+    s["char"], s["realm"] = new, realm
+    s["name"] = s.get("name") or name
+    return True
+
+
+def migrate_char_aliases(flavor: str, aliases: dict[str, str]) -> int:
+    """Ordnet archivierte Sitzungen dem richtigen Charakter zu (Datei und Feld „char“); die ID bleibt gleich."""
+    d = sessions_dir(flavor)
+    if not aliases or not d.is_dir():
+        return 0
+    n = 0
+    for p in sorted(d.glob("*.json")):
+        try:
+            s = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(s, dict) or not s.get("start") or not _apply_alias(s, aliases):
+            continue
+        target = session_path(flavor, s)
+        if target != p and target.is_file():
+            try:
+                other = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                other = None
+            if isinstance(other, dict) and (_int(other.get("saved")), _int(other.get("played"))) >= \
+                    (_int(s.get("saved")), _int(s.get("played"))):
+                p.unlink(missing_ok=True)          # die neuere Fassung liegt schon unter dem richtigen Namen
+                n += 1
+                continue
+        save_session(flavor, s)
+        if target != p:
+            p.unlink(missing_ok=True)
+        n += 1
+    return n
+
+
 def import_link_sessions(root: str, flavor: str) -> dict:
     """Übernimmt neue und fortgesetzte Sitzungen aus allen Accounts. Schreibt nie in WoW-Dateien."""
     from .linkdata import link_state_from_dbs
-    result = {"new": [], "updated": [], "errors": [], "files": 0}
+    result = {"new": [], "updated": [], "errors": [], "files": 0, "renamed": 0}
     deleted = deleted_session_ids(flavor)
     dbs = []
     for path in link_savedvariables(root, flavor):
@@ -428,9 +480,13 @@ def import_link_sessions(root: str, flavor: str) -> dict:
             continue
         result["files"] += 1
         dbs.append((account, db))
+    aliases = char_aliases(dbs)
+    result["renamed"] = migrate_char_aliases(flavor, aliases)
+    for account, db in dbs:
         for s in sessions_in_db(db, flavor, account):
             if s["id"] in deleted:
                 continue
+            _apply_alias(s, aliases)
             target = session_path(flavor, s)
             old = None
             if target.is_file():

@@ -4,7 +4,7 @@ local C = LZ.C
 
 _G.Leeroylink = LZ
 LZ.addon = ADDON
-LZ.version = C.GetMetadata(ADDON, "Version") or "0.10.0"
+LZ.version = C.GetMetadata(ADDON, "Version") or "0.11.0"
 LZ.schema = 1
 LZ.lang = (type(GetLocale) == "function" and GetLocale() == "deDE") and "de" or "en"
 LZ.modules, LZ.moduleList, LZ.commands, LZ.helpLines = {}, {}, {}, {}
@@ -186,11 +186,127 @@ function LZ:InitDB()
 	LZ.db, LZ.gdb, LZ.settings = db, db.global, db.settings
 end
 
+----------------------------------------------------------------------
+-- Characters are saved as "Name-Realm". WoW Forever hides the realm from addons since the
+-- hotfix of 2026-11-20 (GetRealmName() returns ""), and Leeroylink 0.10 then saved everything
+-- under the placeholder "Name-Forever". Now the realm comes from what was saved before.
+----------------------------------------------------------------------
+LZ.NO_REALM = "Forever"
+
+-- The realm from the game, or nil when the game does not tell it.
+function LZ.RealmName()
+	local fns = { _G.GetNormalizedRealmName, _G.GetRealmName }
+	for i = 1, 2 do
+		if type(fns[i]) == "function" then
+			local ok, r = pcall(fns[i])
+			if ok and type(r) == "string" and r ~= "" then return r end
+		end
+	end
+end
+
+local function splitKey(key)
+	if type(key) ~= "string" then return nil end
+	return key:match("^(.-)%-(.+)$")
+end
+
+-- Realm for a character: the game's, else the one this name was saved under (the newest), else the
+-- realm of the character played last on this account, else the placeholder.
+function LZ:ResolveRealm(name)
+	local realm = LZ.RealmName()
+	local g = LZ.gdb
+	if realm then
+		if g then g.realm = realm end
+		return realm
+	end
+	local chars = LZ.db and LZ.db.chars or {}
+	local mine, mineSeen, last, lastSeen
+	for key, c in pairs(chars) do
+		local n, r = splitKey(key)
+		if r and r ~= LZ.NO_REALM then
+			local seen = type(c) == "table" and tonumber(c.lastSeen) or 0
+			if n == name and (not mine or seen > mineSeen) then mine, mineSeen = r, seen end
+			if not last or seen > lastSeen then last, lastSeen = r, seen end
+		end
+	end
+	if mine then return mine end
+	if g and type(g.realm) == "string" and g.realm ~= "" then return g.realm end
+	return last or LZ.NO_REALM
+end
+
 function LZ:CharKey()
 	local name = (UnitName and UnitName("player")) or "?"
-	local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
-	if realm == "" then realm = "Forever" end
-	return name .. "-" .. realm
+	local realm = LZ:ResolveRealm(name)
+	LZ.realm = realm
+	return name .. "-" .. realm, name, realm
+end
+
+-- Joins two saved entries of the same character; `new` is the one saved under the placeholder.
+-- Newer values win, but an empty table never replaces data, counters add up and lists are joined.
+function LZ.MergeChar(old, new)
+	if type(old) ~= "table" then return new end
+	if type(new) ~= "table" then return old end
+	local newer = (tonumber(new.lastSeen) or 0) >= (tonumber(old.lastSeen) or 0)
+	for k, v in pairs(new) do
+		local o = old[k]
+		if o == nil then
+			old[k] = v
+		elseif k == "lastSeen" or k == "scannedAt" then
+			old[k] = math.max(tonumber(o) or 0, tonumber(v) or 0)
+		elseif type(o) == "table" and type(v) == "table" then
+			if k == "leeroy" then
+				o.deaths = (tonumber(o.deaths) or 0) + (tonumber(v.deaths) or 0)
+				o.pullDeaths = (tonumber(o.pullDeaths) or 0) + (tonumber(v.pullDeaths) or 0)
+				o.byZone = type(o.byZone) == "table" and o.byZone or {}
+				for zone, n in pairs(type(v.byZone) == "table" and v.byZone or {}) do
+					o.byZone[zone] = (tonumber(o.byZone[zone]) or 0) + (tonumber(n) or 0)
+				end
+				o.last = math.max(tonumber(o.last) or 0, tonumber(v.last) or 0)
+			elseif k == "tasks" then
+				local have = {}
+				for _, t in ipairs(o) do if type(t) == "table" then have[t.text or ""] = true end end
+				for _, t in ipairs(v) do
+					if type(t) == "table" and not have[t.text or ""] then o[#o + 1] = t end
+				end
+			elseif k == "recipes" or k == "cooldowns" then
+				for kk, vv in pairs(v) do
+					if o[kk] == nil or newer then o[kk] = vv end
+				end
+			elseif next(v) ~= nil and newer then
+				old[k] = v
+			end
+		elseif newer then
+			old[k] = v
+		end
+	end
+	return old
+end
+
+-- Moves what was saved under "Name-Forever" to the character's real key (characters, sessions,
+-- loot) and remembers the move for Leeroyzan, which renames its archived sessions the same way.
+function LZ:AdoptPlaceholder(name, key, realm)
+	local from = name .. "-" .. LZ.NO_REALM
+	local db, g = LZ.db, LZ.gdb
+	if from == key or not db or not g then return false end
+	local moved = false
+	if type(db.chars[from]) == "table" then
+		db.chars[key] = LZ.MergeChar(db.chars[key], db.chars[from])
+		db.chars[from] = nil
+		moved = true
+	end
+	for _, s in ipairs(type(g.sessionLog) == "table" and g.sessionLog or {}) do
+		if type(s) == "table" and s.char == from then
+			s.char, s.realm = key, realm
+			moved = true
+		end
+	end
+	for _, e in ipairs(type(g.loot) == "table" and g.loot or {}) do
+		if type(e) == "table" and e.char == from then e.char = key end
+	end
+	if moved then
+		g.charAliases = type(g.charAliases) == "table" and g.charAliases or {}
+		g.charAliases[from] = key
+	end
+	return moved
 end
 
 ----------------------------------------------------------------------
@@ -298,7 +414,11 @@ end
 ----------------------------------------------------------------------
 function LZ:OnLogin()
 	if not LZ.db then LZ:InitDB() end
-	LZ.charKey = LZ:CharKey()
+	local key, name, realm = LZ:CharKey()
+	LZ.charKey = key
+	if LZ:AdoptPlaceholder(name, key, realm) then
+		LZ.adopted = name .. "-" .. LZ.NO_REALM
+	end
 	LZ.db.chars[LZ.charKey] = LZ.db.chars[LZ.charKey] or {}
 	LZ.char = LZ.db.chars[LZ.charKey]
 	LZ.char.lastSeen = time()
@@ -335,6 +455,10 @@ core:SetScript("OnEvent", function(_, event, arg1)
 		if arg1 == ADDON then LZ:InitDB() end
 	elseif event == "PLAYER_LOGIN" then
 		LZ:Safe(LZ.OnLogin, LZ)
+		if LZ.adopted then
+			LZ:Print(string.format(LZ.T("WoW Forever verrät Addons den Realm nicht mehr. Was seit dem 20.11. unter „%s“ gespeichert wurde, gehört jetzt wieder zu %s.",
+				"WoW Forever no longer tells addons the realm. What was saved under \"%s\" since Nov 20 belongs to %s again."), LZ.adopted, LZ.charKey))
+		end
 		-- the addon was called "Leeroyzan Link" (folder LeeroyzanLink) up to 0.3.2
 		if C.IsLoaded("LeeroyzanLink") then
 			LZ:Print(LZ.T("Die alte Version „Leeroyzan Link“ ist noch installiert. Leeroyzan stellt sie mit einem Klick auf Leeroylink um und übernimmt deine Daten.",

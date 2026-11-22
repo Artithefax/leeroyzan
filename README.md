@@ -82,6 +82,10 @@ Leeroyzan comes with its own companion addon, **Leeroylink** (folder `Leeroylink
 
 **Characters and recipes:** opening a profession window stores its recipes with reagents (Leeroylink 0.3). Leeroyzan then tells you, for any recipe and quantity, what you have, which alt has the rest and what is missing.
 
+**Layer switch:** `/lz layer` lists your online Battle.net friends in WoW Forever, friends and guild mates; *Switch* next to a name (or `/lz layer <name>`) asks that player's Leeroylink for an invite, accepts it and leaves the group a few seconds later – you stay on their layer (Leeroylink 0.11; the other player is asked first unless they allow it without asking). WoW Forever has hidden the layer from addons since the hotfix of 20 November 2026, so a numbered layer cannot be chosen any more – joining a group is the game's own way of changing layers. If the other player is in another zone, the group is kept until you arrive there.
+
+**Realm:** since the same hotfix WoW Forever gives addons no realm name. Leeroylink keeps saving each character under the realm it had before (a new character under the realm last played on that account), and moves anything Leeroylink 0.10 saved under *Name-Forever* back to the real character; Leeroyzan renames its archived sessions to match.
+
 How it works: WoW addons cannot open network connections or write files, so the addon keeps its data in its *SavedVariables* (`WTF\Account\<account>\SavedVariables\Leeroylink.lua`, the newest 30 sessions), which WoW writes on logout and on `/reload`. Leeroyzan watches that file, **only reads it** and stores each session as a JSON file in `Leeroyzan-Data\sessions\<game version>`. A `/reload` or logging back in with the same character within 15 minutes continues the same session. If Leeroyzan is open while you play, the summary appears as soon as the game is closed; otherwise on the next start. In the game, `/lz session` shows the current session.
 
 ## Map
@@ -134,6 +138,7 @@ ruff check .
 ```
 
 - `tests/test_sessions.py` drives Leeroylink through a small imitation of the WoW API (a scripted play session with a `/reload` in the middle, the quest companion with real quest data) and checks the import, the summaries, QuestieDB, rewards, the auction house and the self-update.
+- `tests/test_layerhop.py` runs two Leeroylink clients side by side and passes their messages, invites and group changes between them: a layer switch with and without asking, another zone, refusals, Battle.net friends – plus the realm handling without a realm name.
 - `tests/test_files.py` covers installing, undo, interrupted updates, parked sources, settings, encryption and signatures.
 - `tests/test_discordshare.py` checks the Discord posts (builds, guides, Wowhead, quests, characters, addon lists) against Discord's limits and clicks every *Discord ↗* button in the window; `tests/test_presence.py` talks to a stand-in for the Discord app.
 - `tests/test_gui.py` opens the window in every layout and language and shows every page (on Linux: `xvfb-run -a python -m unittest tests.test_gui`).
