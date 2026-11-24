@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,7 +33,8 @@ def day(ts: float) -> int:
 
 
 NOW = time.time()
-TODAY = day(NOW)
+REF = datetime.combine(date.today() - timedelta(days=1), dtime(12)).timestamp()   # gestern Mittag: kein Tageswechsel
+TODAY = day(REF)                                                                  # mitten im Test (auch nachts um 0 Uhr)
 
 
 def auctionator(entries: dict, mtime: float = NOW) -> dict:
@@ -98,10 +100,10 @@ class AuctionRowTests(unittest.TestCase):
         own = {"2589": {"m": 40, "l": {str(TODAY - 3): 40}, "h": {str(TODAY - 3): 40}, "a": {str(TODAY - 3): 5}},
                "4306": {"m": 900, "l": {str(TODAY): 900}, "h": {str(TODAY): 900}, "a": {}}}
         store = {"realms": {"Realm Allianz": {
-            "2589": [30, int(NOW - 60), "Anna"],                    # neuer als der eigene Scan → aktueller Preis
-            "4306": [100, int(NOW - 2 * 86400), "Tom"],              # älter → nur Verlauf
-            "118": [5, int(NOW - 120), "Tom"],                       # nur beim Freund
-            "765": [9, int(NOW - 30 * 86400), "Tom"]}}}              # zu alt → zählt nicht
+            "2589": [30, int(REF), "Anna"],                          # neuer als der eigene Scan → aktueller Preis
+            "4306": [100, int(REF - 2 * 86400), "Tom"],              # älter → nur Verlauf
+            "118": [5, int(REF - 120), "Tom"],                       # nur beim Freund
+            "765": [9, int(REF - 30 * 86400), "Tom"]}}}              # zu alt → zählt nicht
         data = auction.with_shared_prices(auctionator(own), store, 7)
         rows = {r["id"]: r for r in auction.auction_rows(data, None, None, {}, "deDE")["Realm Allianz"]}
         self.assertEqual((rows[2589]["price"], rows[2589]["last"]), (30, TODAY))
