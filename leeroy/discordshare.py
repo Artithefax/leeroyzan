@@ -210,7 +210,7 @@ def share_char_messages(c: dict, played: int = 0, sessions: int = 0, with_gold: 
 # ----- Addon-Liste -------------------------------------------------------------------------- #
 def share_addons_messages(payload: dict, code_parts: list[str], unlinked: list[str], flavor_name: str = "",
                           comment: str = "", author: str = "") -> list[dict]:
-    """Addons mit Links zu CurseForge/GitHub – und der Code dazu, den Freunde in Leeroyzan einfügen (Teilen → Empfangen).
+    """Addons mit Links zu CurseForge/GitHub – und der Code dazu, den Freunde in Leeroyzan einfügen (Teilen → Addons übernehmen).
     Ein langer Code wird auf mehrere Nachrichten verteilt."""
     entries = payload.get("a") or []
     lines: list[str] = []
@@ -233,12 +233,27 @@ def share_addons_messages(payload: dict, code_parts: list[str], unlinked: list[s
         fields.append((tr("Addon-Sets"), ", ".join(_md(n) for n in payload["s"]), False))
     title = tr("{0} Addons für {1}", len(entries), flavor_name) if flavor_name else tr("{0} Addons", len(entries))
     emb = share_embed(title, "", desc, fields, DISCORD_COLOR, "", tr("Addon-Liste"))
-    hint = tr("Zum Installieren: Code kopieren → Leeroyzan → Teilen → Empfangen.") if code_parts else ""
+    hint = tr("Zum Installieren: Code kopieren → Leeroyzan → Teilen → Addons übernehmen.") if code_parts else ""
     msgs = [share_message(emb, comment, author, hint)]
     for i, part in enumerate(code_parts, 1):
         head = tr("Code, Teil {0} von {1}:", i, len(code_parts)) + "\n" if len(code_parts) > 1 else ""
         msgs.append(share_message(content=cut(f"{head}```\n{part}\n```", CONTENT_MAX)))
     return msgs
+
+
+def share_prices_message(d: dict, flavor_name: str = "", comment: str = "", author: str = "") -> dict:
+    """AH-Preise als Nachricht mit der Datei im Anhang (die Datei hängt share_send nicht an – das macht der Aufrufer)."""
+    stamps = [v[1] for v in d["p"].values()]
+    newest, oldest = max(stamps), min(stamps)
+    fields = [(tr("Gegenstände"), f"{d['n']:,}".replace(",", "."), True),
+              (tr("Neuester Preis"), f"<t:{newest}:R>", True),
+              (tr("Ältester Preis"), f"<t:{oldest}:R>", True)]
+    title = tr("AH-Preise · {0}", d["realm"]) + (f" ({flavor_name})" if flavor_name else "")
+    emb = share_embed(title, "", tr("Jeder Preis hat seinen eigenen Zeitstempel – ältere Preise überschreiben nie neuere."),
+                      fields, DISCORD_COLOR, "", tr("AH-Preise"))
+    hint = tr("Zum Übernehmen: Datei herunterladen und in Leeroyzan → Teilen → AH-Preise übernehmen öffnen "
+              "(oder hineinziehen). Oder Rechtsklick auf die Datei → Link kopieren und dort einfügen.")
+    return share_message(emb, comment, author, hint)
 
 
 # ----- Vorschau und Senden ------------------------------------------------------------------ #

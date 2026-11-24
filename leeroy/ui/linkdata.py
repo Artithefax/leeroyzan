@@ -8,6 +8,7 @@ import tkinter as tk
 from ..constants import APP_VERSION
 from ..i18n import tr
 from ..config import log, save_config
+from ..ahshare import game_prices, load_shared
 from ..linkdata import LINK_SCHEMA, _norm_name, error_rows, notes_lines, write_link_data
 from ..questdb import ensure_reward_data, write_quest_data
 
@@ -49,7 +50,8 @@ class LinkDataMixin:
         return {"schema": LINK_SCHEMA, "generated": int(time.time()), "managerVersion": APP_VERSION,
                 "updates": updates, "managed": managed, "installed": installed, "profiles": profiles,
                 "whatsnew": list(self.link_news()), "knownIssues": issues,
-                "questGuide": {"on": self.quest_guide_on(), "at": int(self.cfg.get("quest_guide", {}).get("at", 0))}}
+                "questGuide": {"on": self.quest_guide_on(), "at": int(self.cfg.get("quest_guide", {}).get("at", 0))},
+                "sharedPrices": game_prices(load_shared(self.flavor), self.ah_shared_days()) if self.flavor else {}}
 
     def schedule_link_write(self):
         if self._link_write_job:

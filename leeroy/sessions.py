@@ -143,7 +143,7 @@ def _norm_explore(ex: dict) -> dict:
                    "t": _int(_map(e).get("t"))} for e in _list(ex.get("found"))],
         "zones": {k: {"sec": _int(_map(z).get("sec")), "subs": sorted(str(x) for x in _map(_map(z).get("subs"))),
                       "xp": _int(_map(z).get("xp")), "money": _int(_map(z).get("money")),
-                      "kills": _int(_map(z).get("kills"))}
+                      "lootValue": _int(_map(z).get("lootValue")), "kills": _int(_map(z).get("kills"))}
                   for k, z in _map(ex.get("zones")).items()},
     }
 
@@ -237,8 +237,9 @@ def normalize_session(raw, flavor: str = "", account: str = "") -> dict | None:
         "level": {"from": _int(lv.get("from")), "to": _int(lv.get("to")),
                   "ups": [{"l": _int(_map(u).get("l")), "t": _int(_map(u).get("t"))} for u in _list(lv.get("ups"))]},
         "xp": {k: _int(xp.get(k)) for k in ("total", "kills", "quests", "explore", "other", "killsN", "combat")},
-        "money": {"start": _int(mo.get("start")), "stop": _int(mo.get("stop")), "income": _int(mo.get("income")),
-                  "spent": _int(mo.get("spent")), "gain": _counts(mo.get("gain")), "spend": _counts(mo.get("spend"))},
+        "money": {"v": _int(mo.get("v")), "start": _int(mo.get("start")), "stop": _int(mo.get("stop")),
+                  "income": _int(mo.get("income")), "spent": _int(mo.get("spent")), "drift": _int(mo.get("drift")),
+                  "gain": _counts(mo.get("gain")), "spend": _counts(mo.get("spend"))},
         "quests": _norm_quests(qu),
         "loot": _norm_loot(lo),
         "combat": _norm_combat(cb),
@@ -280,10 +281,55 @@ def legacy_session(raw, flavor: str = "", account: str = "") -> dict | None:
 
 
 def session_net_money(s: dict) -> int:
+    """Kontostand am Ende minus Kontostand am Anfang (mit Überweisungen, Käufen …)."""
     m = s.get("money", {})
     if "net" in m:
         return _int(m["net"])
     return _int(m.get("stop")) - _int(m.get("start"))
+
+
+# Gold-Quellen (Leeroylink 0.12, money.v = 2): was erfarmt ist, was nur zwischen Charakteren wandert
+FARM_SOURCES = ("loot", "quest", "vendor", "auction")
+FARM_SOURCES_OLD = ("loot", "quest", "vendor")        # bis 0.11: AH-Erlöse steckten ungeteilt in „Post“
+TRANSFER_KINDS = ("twink", "mail", "trade")
+MONEY_V = 2
+
+
+def money_breakdown(s: dict) -> dict:
+    """Gold einer Sitzung, aufgeteilt:
+    farmed = Beute + Quests + Händlerverkäufe + AH-Erlöse, income = alle Einnahmen ohne Transfers und
+    AH-Rückzahlungen, spent = Ausgaben ohne Transfers (AH-Rückzahlungen verrechnet), tin/tout = Transfers
+    (Twinks, Post von und an Spieler, Handel), net = Kontostandsänderung, drift = nicht zugeordnet.
+    gain/spend = Aufschlüsselung ohne Transfers; old = aufgezeichnet vor Leeroylink 0.12."""
+    m = s.get("money", {}) or {}
+    net = session_net_money(s)
+    if s.get("legacy"):
+        return {"farmed": max(0, net), "income": max(0, net), "spent": max(0, -net), "net": net, "tin": 0, "tout": 0,
+                "transfers": {}, "gain": {}, "spend": {}, "drift": 0, "old": True}
+    gain = {k: _int(v) for k, v in (m.get("gain") or {}).items() if _int(v)}
+    spend = {k: _int(v) for k, v in (m.get("spend") or {}).items() if _int(v)}
+    new = _int(m.get("v")) >= MONEY_V
+    transfers: dict[str, tuple[int, int]] = {}
+    refund = 0
+    if new:
+        transfers = {k: (gain.pop(k, 0), spend.pop(k, 0)) for k in TRANSFER_KINDS if gain.get(k) or spend.get(k)}
+        refund = gain.pop("refund", 0)
+        if refund and spend.get("auction"):
+            back = min(refund, spend["auction"])
+            spend["auction"] -= back
+            if not spend["auction"]:
+                del spend["auction"]
+    farmed = sum(gain.get(k, 0) for k in (FARM_SOURCES if new else FARM_SOURCES_OLD))
+    tin = sum(a for a, _ in transfers.values())
+    tout = sum(b for _, b in transfers.values())
+    return {"farmed": farmed, "income": sum(gain.values()), "spent": sum(spend.values()), "net": net,
+            "tin": tin, "tout": tout, "transfers": transfers, "gain": gain, "spend": spend,
+            "drift": _int(m.get("drift")) if new else 0, "old": not new}
+
+
+def session_farmed(s: dict) -> int:
+    """Erfarmtes Gold einer Sitzung (ohne Überweisungen und Käufe)."""
+    return money_breakdown(s)["farmed"]
 
 
 # ----- Dateien ------------------------------------------------------------ #

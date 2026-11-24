@@ -104,6 +104,7 @@ class WindowSmokeTests(unittest.TestCase):
             for key, _ in app.SESS_VIEWS:
                 app._sess_select_view(key)
                 app.update()
+            self.statistics_windows(app)
             other = "en" if language == "de" else "de"
             app.change_language(other)
             app.update()
@@ -116,6 +117,84 @@ class WindowSmokeTests(unittest.TestCase):
             app.destroy()
             lz.log.removeHandler(handler)
         return errors
+
+    @staticmethod
+    def widgets(root, cls=None, text=None):
+        out, todo = [], [root]
+        while todo:
+            w = todo.pop()
+            todo.extend(w.winfo_children())
+            if (cls is None or w.winfo_class() == cls) and (text is None or str(w.cget("text") if "text" in w.keys() else "") == text):
+                out.append(w)
+        return out
+
+    def statistics_windows(self, app):
+        """Vorlagen (Ansicht, Editor) und Post-Aufträge (Editor, Vorschau) einmal durchklicken."""
+        from leeroy.i18n import tr
+        app._sess_select_view("report")
+        for tid in ("alles", "kompakt", ""):
+            app.cfg["sess_template"] = tid
+            app._sess_template_values()
+            for item in app.sess_tree.get_children()[:2]:
+                app.sess_tree.selection_set(item)
+                app.update()
+        app.cfg.setdefault("stat_templates", {})["u_test"] = {"name": "Test", "blocks": [{"id": "xp.total"}, {"id": "gold.farmed"}]}
+        app.open_template_editor(select="u_test")
+        app.update()
+        win = app._tpl_win
+        lb = self.widgets(win, "Listbox")[0]
+        tree = self.widgets(win, "Treeview")[0]
+        lb.selection_set(0)
+        lb.event_generate("<<ListboxSelect>>")
+        tree.focus("kills.total")
+        self.widgets(win, "TButton", tr("Hinzufügen →"))[0].invoke()
+        self.widgets(win, "TButton", "↓")[0].invoke()
+        for chk in self.widgets(win, "TCheckbutton"):
+            if chk.winfo_ismapped():
+                chk.invoke()
+        self.widgets(win, "TButton", tr("Entfernen"))[0].invoke()
+        app.update()
+        self.assertEqual(len(app.cfg["stat_templates"]["u_test"]["blocks"]), 2)
+        win.destroy()
+        from leeroy.autopost import load_jobs
+        jobs = load_jobs(app.cfg)
+        for job in jobs:
+            app.preview_job(job)
+            app.update()
+        app.open_job_editor(jobs[2])
+        app.update()
+        dlg = [w for w in app.winfo_children() if w.winfo_class() == "Toplevel"][-1]
+        self.widgets(dlg, "TButton", tr("Speichern"))[0].invoke()
+        app.update()
+        self.assertTrue(isinstance(app.cfg.get("discord_jobs"), list))
+        for w in app.winfo_children():
+            if w.winfo_class() == "Toplevel":
+                w.destroy()
+        # Teilen: jede Aufgabe einmal zeigen, eine Preisdatei übernehmen
+        import time as _t
+        from leeroy.ahshare import PRICE_KIND, load_shared
+        app.show_page("share")
+        for key, _, _ in app.SHARE_TASKS:
+            app.share_task(key)
+            app.update()
+        app.share_show_code.set(True)
+        app.rebuild_share()
+        if not app.flavor:            # im Gesamtlauf liest die App eine fremde Konfiguration (CONFIG_FILE beim ersten Import)
+            return
+        prices = {"kind": PRICE_KIND, "v": 1, "flavor": app.flavor, "realm": "Test Allianz", "by": "Anna",
+                  "at": int(_t.time()), "p": {"2589": [34, int(_t.time()) - 60]}}
+        app._ah_import_bytes(json.dumps(prices).encode())
+        self.assertIn("2589", load_shared(app.flavor)["realms"]["Test Allianz"])
+        app.update()
+        app.show_page("auction")
+        deadline = _t.time() + 3
+        while _t.time() < deadline and not app.ah_rows_by_realm.get("Test Allianz"):
+            app.update()
+            _t.sleep(0.02)
+        app.ah_realm_var.set("Test Allianz")
+        app._ah_build_rows()
+        app.update()
+        self.assertTrue(any(r.get("shared") for r in app.ah_rows))
 
     def test_layouts_and_languages(self):
         for layout in ("klassisch", "seitenleiste", "launcher"):

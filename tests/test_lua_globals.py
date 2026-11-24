@@ -17,7 +17,7 @@ LUA = {"_G", "bit", "date", "debugstack", "geterrorhandler", "ipairs", "math", "
        "type", "unpack", "wipe", "xpcall", "hooksecurefunc", "issecretvalue", "rawget"}
 WOW = set("""AcceptQuest C_DateAndTime C_Item C_Map C_QuestLog C_Spell C_Timer CanMerchantRepair
 CombatLogGetCurrentEventInfo CompleteQuest CreateFrame DoEmote Enum GameTooltip GetAbandonQuestName
-GetAuctionItemInfo GetBuildInfo GetCursorPosition GetFactionInfo GetFactionInfoByID GetGuildInfo GetInstanceInfo
+GetAuctionItemInfo GetBuildInfo GetCursorPosition GetInboxHeaderInfo GetInboxInvoiceInfo GetSendMailMoney GetSendMailPrice InRepairMode GetFactionInfo GetFactionInfoByID GetGuildInfo GetInstanceInfo
 GetItemInfo GetLocale GetMoney GetNormalizedRealmName GetNumAuctionItems GetNumFactions GetNumGroupMembers
 GetNumPartyMembers GetNumQuestChoices GetNumQuestLeaderBoards GetNumQuestLogEntries GetNumRaidMembers GetNumSavedInstances
 GetQuestLogLeaderBoard GetQuestsCompleted

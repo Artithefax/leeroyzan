@@ -142,7 +142,7 @@ class MessageTests(unittest.TestCase):
         self.assertIn("[Leatrix \\*Plus\\*]", e["description"])                     # Formatierung entschärft
         self.assertIn("(https://github.com/Bagnon/Bagnon) (GitHub)", e["description"])
         self.assertEqual(e["fields"][0]["value"], "Mein\\_Kram")
-        self.assertIn("Teilen → Empfangen", msgs[0]["content"])
+        self.assertIn("Teilen → Addons übernehmen", msgs[0]["content"])
         # der Code aus Discord lässt sich in Leeroyzan wieder einlesen
         pasted = "\n".join(m["content"] for m in msgs[1:])
         self.assertEqual(lz.parse_list_text(pasted)["a"], payload["a"])

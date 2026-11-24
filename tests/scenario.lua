@@ -5,7 +5,7 @@ dofile(TESTS_DIR .. "/wow_stub.lua")
 if SV_IN then dofile(SV_IN) end
 if START_NOW then STUB.now = START_NOW end
 if PART == 2 then -- the game state after the reload is what part 1 left behind
-	STUB.level, STUB.xp, STUB.xpMax, STUB.money = 22, 200, 11000, 52625
+	STUB.level, STUB.xp, STUB.xpMax, STUB.money = 22, 200, 11000, 57885
 	STUB.skills[2][4], STUB.skills[3][4] = 46, 31
 	STUB.bag = { { id = 2589, n = 12 }, { id = 4306, n = 3 } }
 	STUB.completed = { [7] = true, [33] = true, [176] = true }
@@ -309,7 +309,7 @@ if PART == 1 then
 	STUB.afk, STUB.resting = false, false
 
 	local z = s.explore.zones["Rotkammgebirge"]
-	check(z.kills == 9 and z.xp > 3000 and z.money == 3825, "zone stats: " .. tostring(z.kills) .. "/" .. tostring(z.xp) .. "/" .. tostring(z.money))
+	check(z.kills == 9 and z.xp > 3000 and z.money == 3525 and z.lootValue == 309, "zone stats (sales are not the zone's): " .. tostring(z.kills) .. "/" .. tostring(z.xp) .. "/" .. tostring(z.money) .. "/" .. tostring(z.lootValue))
 	check(s.kills.n == 9, "kills counted (incl. pet kill, excl. foreign): " .. s.kills.n)
 	check(s.kills.elite == 2 and s.kills.rare == 1, "elite/rare classified")
 	check(s.kills.blows == 5, "killing blows: " .. s.kills.blows)
@@ -340,6 +340,49 @@ if PART == 1 then
 	check(s.move.jumps == 3, "jumps")
 	check(s.time.afk >= 118, "afk time: " .. s.time.afk)
 	check(#s.spellsLearned == 1 and #s.prof.learned == 1, "learned spell and recipe")
+
+	-- gold (Leeroylink 0.12): each change waits for the event that explains it
+	local G, SP = s.money.gain, s.money.spend
+	check(s.money.v == 2, "gold sources of 0.12 marked")
+	local q0, l0, v0 = G.quest or 0, G.loot or 0, SP.vendor or 0
+	STUB.money = STUB.money + 800; STUB.fire("PLAYER_MONEY")       -- the quest reward comes before QUEST_TURNED_IN
+	STUB.advance(0.5)
+	STUB.fire("QUEST_TURNED_IN", 126, 0, 800)
+	STUB.advance(5)
+	STUB.money = STUB.money + 40; STUB.fire("PLAYER_MONEY")        -- share of the group loot: no loot window,
+	STUB.advance(0.25)                                             -- the chat line comes after the gold
+	STUB.fire("CHAT_MSG_MONEY", "Euer Anteil an der Beute beträgt 40 Kupfer.")
+	STUB.advance(3)
+	check(G.quest == q0 + 800 and (G.other or 0) == 0, "quest gold that came before the turn-in: " .. tostring(G.quest) .. " / other " .. tostring(G.other))
+	check(G.loot == l0 + 40, "share of the group loot: " .. tostring(G.loot))
+	-- mail: an AH sale and gold from a twink, taken quickly one after the other; gold sent to the twink
+	LZ.db.chars["Twinki-" .. (LZ.charKey:match("%-(.+)$") or "")] = { lastSeen = 1 }
+	STUB.inbox = {
+		{ sender = "Auktionshaus von Sturmwind", subject = "Auktion erfolgreich: Leinenstoff (20)", money = 1900, invoice = "seller" },
+		{ sender = "Twinki", subject = "Taschengeld", money = 5000 },
+	}
+	STUB.fire("MAIL_SHOW")
+	TakeInboxMoney(2); TakeInboxMoney(1)
+	STUB.money = STUB.money + 1900; STUB.fire("PLAYER_MONEY")
+	STUB.money = STUB.money + 5000; STUB.fire("PLAYER_MONEY")
+	STUB.send.money = 2000
+	SendMail("Twinki", "Zurück", "")
+	STUB.money = STUB.money - 2030; STUB.fire("PLAYER_MONEY")
+	STUB.send.money = 0
+	STUB.fire("MAIL_CLOSED")
+	STUB.inbox = {}
+	-- repair at a vendor
+	STUB.fire("MERCHANT_SHOW")
+	RepairAllItems()
+	STUB.money = STUB.money - 450; STUB.fire("PLAYER_MONEY")
+	STUB.fire("MERCHANT_CLOSED")
+	STUB.advance(3)
+	check(G.auction == 1900 and G.twink == 5000 and (G.mail or 0) == 0, "mail: AH sale and gold from a twink: "
+		.. tostring(G.auction) .. "/" .. tostring(G.twink) .. "/" .. tostring(G.mail))
+	check(SP.twink == 2000 and SP.postage == 30, "gold sent to a twink, postage apart: " .. tostring(SP.twink) .. "/" .. tostring(SP.postage))
+	check(SP.repair == 450 and SP.vendor == v0, "repair apart from purchases")
+	mod:Update()
+	check(s.money.drift == 0, "every gold change booked: drift " .. tostring(s.money.drift))
 	-- quest companion: own window, chain from Quests.lua, rewards remembered for all characters
 	local QG = LZ.modules.QuestGuide
 	check(QG and QG.enabled, "quest companion enabled")
@@ -517,6 +560,7 @@ else
 	check(s.move.taxi > 500, "flight path distance")
 	check(s.played > 300, "played time grows across reload: " .. s.played)
 	check(s.xpNow == STUB.xp and s.xpMax == STUB.xpMax, "xp progress saved")
+	check(s.money.drift == 0 and s.money.stop == STUB.money, "gold adds up across the reload: drift " .. tostring(s.money.drift))
 end
 
 -- the in-game page and the overview line must render without errors

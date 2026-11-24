@@ -1,6 +1,9 @@
 """Seite „Auktionshaus“: Preise aus Auctionator, filterbar, mit Verlauf. (Mixin, wird in App eingemischt)."""
 from __future__ import annotations
 
+import time
+from datetime import datetime
+
 
 from tkinter import ttk
 import tkinter as tk
@@ -10,12 +13,14 @@ from ..config import log, save_config
 from ..reports import QUALITY_COLORS, fmt_int, fmt_money, plural
 from ..wowhead import wowhead_url
 from ..questdb import QuestDBError, _REWARD_TRIED, ensure_reward_data, load_questdb, load_reward_data, rewards_due
+from ..ahshare import load_shared, ts_day
 from ..auction import (
     ITEM_CLASSES,
     auc_day_date,
     auction_rows,
     auctionator_savedvariables,
     load_auctionator,
+    with_shared_prices,
 )
 from .theme import THEME
 from .dialogs import Placeholder
@@ -49,6 +54,8 @@ class AuctionPage:
         self.ah_vendor = tk.BooleanVar(value=False)
         self.ah_owned = tk.BooleanVar(value=False)
         ttk.Button(head, text=tr("Neu einlesen"), command=lambda: self.ah_open(force=True)).pack(side="right", anchor="s", padx=(12, 0))
+        ttk.Button(head, text=tr("Preise teilen …"), command=lambda: (self.show_page("share"), self.share_task("ahsend"))).pack(
+            side="right", anchor="s", padx=(12, 0))
         self.ah_realm_cb = ttk.Combobox(head, textvariable=self.ah_realm_var, state="readonly", width=16)
         self.ah_realm_cb.bind("<<ComboboxSelected>>", lambda e: self._ah_build_rows())
         ttk.Label(head, textvariable=self.ah_status_var, style="Body.TLabel").pack(side="right", anchor="s")
@@ -126,9 +133,10 @@ class AuctionPage:
 
         loc = "deDE" if cur_lang() == "de" else "enUS"
         state = dict(self.link_state)
+        days = self.ah_shared_days()
 
         def work():
-            data = load_auctionator(root, flavor)
+            data = with_shared_prices(load_auctionator(root, flavor), load_shared(flavor), days)
             try:
                 qdb = load_questdb(root, flavor)
             except (QuestDBError, OSError):
@@ -181,6 +189,9 @@ class AuctionPage:
         last = max((r["last"] for r in rows), default=0)
         worth = sum(r["owned"] * r["price"] for r in rows)
         status = tr("{0} Gegenstände · Stand {1}", fmt_int(len(rows)), auc_day_date(last).strftime(tr("%d.%m.%Y")) if last else "–")
+        shared = sum(1 for r in rows if r.get("shared") and r["shared"]["current"])
+        if shared:
+            status += "  ·  " + plural(shared, "{0} Preis von Freunden", "{0} Preise von Freunden")
         if worth:
             status += "  ·  " + tr("deine Bestände: {0}", fmt_money(worth))
         self.ah_status_var.set(status)
@@ -202,6 +213,7 @@ class AuctionPage:
         except ValueError:
             lmin = lmax = 0
         out = []
+        fresh_day = ts_day(time.time()) - self.ah_shared_days()      # Schnäppchen nur mit aktuellen Preisen
         for r in self.ah_rows:
             if text and text not in r["name"].lower() and text != str(r["id"]):
                 continue
@@ -209,7 +221,7 @@ class AuctionPage:
                 continue
             if lmin and r["req"] < lmin or lmax and r["req"] > lmax:
                 continue
-            if self.ah_deal.get() and not (r["change"] is not None and r["change"] <= -0.2):
+            if self.ah_deal.get() and not (r["change"] is not None and r["change"] <= -0.2 and r["last"] >= fresh_day):
                 continue
             if self.ah_vendor.get() and not (r["vendor"] and r["price"] and r["price"] < r["vendor"]):
                 continue
@@ -227,7 +239,8 @@ class AuctionPage:
             ch = "" if r["change"] is None else f"{r['change'] * 100:+.0f} %"
             self.ah_tree.insert("", "end", iid=r["key"], tags=tags, values=(
                 r["name"], fmt_money(r["price"]), fmt_money(int(r["avg"])) if r["avg"] and r["days"] > 1 else "–", ch,
-                fmt_int(r["avail"]), auc_day_date(r["last"]).strftime("%d.%m") if r["last"] else "–"))
+                fmt_int(r["avail"]), (auc_day_date(r["last"]).strftime("%d.%m") if r["last"] else "–")
+                + (" ⇄" if r.get("shared") and r["shared"]["current"] else "")))
         self.ah_info_var.set(plural(len(out), "{0} Gegenstand", "{0} Gegenstände") if self.ah_rows else "")
         for c, l in self.AH_COLUMNS:
             arrow = (" ▼" if desc else " ▲") if c == col else ""
@@ -260,7 +273,12 @@ class AuctionPage:
         meta.append(f"ID {r['id']}")
         parts.append(("  ·  ".join(m for m in meta if m) + "\n\n", "dim"))
         lows = [lo for _, lo, _, _ in r["hist"] if lo]
-        rows = [(tr("Aktueller Mindestpreis"), fmt_money(r["price"])),
+        sh = r.get("shared")
+        now_price = fmt_money(r["price"])
+        if sh and sh["current"]:
+            now_price += "  ⇄ " + tr("von {0}, {1}", sh["by"] or tr("einem Freund"),
+                                     datetime.fromtimestamp(sh["ts"]).strftime(tr("%d.%m.%Y %H:%M")))
+        rows = [(tr("Aktueller Mindestpreis"), now_price),
                 (tr("Ø der letzten 14 Tage"), fmt_money(int(r["avg"])) if r["avg"] and r["days"] > 1 else "–"),
                 (tr("Tiefster / höchster Tagespreis"), f"{fmt_money(min(lows))} / {fmt_money(max(hi for _, _, hi, _ in r['hist']))}" if lows else "–"),
                 (tr("Zuletzt im Angebot"), tr("{0} Stück am {1}", fmt_int(r["avail"]), auc_day_date(r["last"]).strftime(tr("%d.%m.%Y"))) if r["last"] else "–"),
@@ -274,6 +292,11 @@ class AuctionPage:
                                  fmt_money(r["owned"] * r["price"])) + "\n", "hl")]
         if (r["vendor"] or r["sell"]) and r["price"] and r["price"] < (r["vendor"] or r["sell"]):
             parts += [("\n" + tr("Im Auktionshaus billiger als beim Händler – kaufen und beim Händler verkaufen lohnt sich.") + "\n", "ok")]
+        if sh and not sh["current"]:
+            parts += [("\n" + tr("Der Verlauf enthält einen Preis von {0} ({1}).", sh["by"] or tr("einem Freund"),
+                                  datetime.fromtimestamp(sh["ts"]).strftime(tr("%d.%m.%Y"))) + "\n", "dim")]
+        if r["last"] and r["last"] < ts_day(time.time()) - self.ah_shared_days():
+            parts += [("\n" + tr("Dieser Preis ist älter als {0} Tage – er zählt nicht für Schnäppchen.", self.ah_shared_days()) + "\n", "warn")]
         if r["days"] < 2:
             parts += [("\n" + tr("Erst ein Scantag – den Verlauf gibt es nach weiteren Scans.") + "\n", "dim")]
         self._set_text(self.ah_text, parts=parts)

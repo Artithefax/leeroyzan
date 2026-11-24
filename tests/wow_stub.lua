@@ -272,6 +272,25 @@ function GetNumQuestLogChoices() return #(rw().choice or {}) end
 function GetQuestLogRewardInfo(i) return GetQuestItemInfo("reward", i) end
 function GetQuestLogChoiceInfo(i) return GetQuestItemInfo("choice", i) end
 function GetQuestLogItemLink(kind, i) return GetQuestItemLink(kind, i) end
+-- mail and repairs: STUB.inbox = {{ sender, subject, money, cod, invoice }}, STUB.send = { money, price }
+STUB.inbox, STUB.send = {}, { money = 0, price = 30 }
+AUCTION_SOLD_MAIL_SUBJECT = "Auktion erfolgreich: %s"
+AUCTION_OUTBID_MAIL_SUBJECT = "Überboten: %s"
+AUCTION_REMOVED_MAIL_SUBJECT = "Auktion abgebrochen: %s"
+AUCTION_EXPIRED_MAIL_SUBJECT = "Auktion abgelaufen: %s"
+function GetInboxHeaderInfo(i)
+	local m = STUB.inbox[i]
+	if m then return nil, nil, m.sender, m.subject, m.money or 0, m.cod or 0, 30, false, false, false, true, true, m.gm or false end
+end
+function GetInboxInvoiceInfo(i) local m = STUB.inbox[i]; return m and m.invoice or nil end
+function TakeInboxMoney(i) end
+function TakeInboxItem(i, a) end
+function AutoLootMailItem(i) end
+function GetSendMailMoney() return STUB.send.money end
+function GetSendMailPrice() return STUB.send.price end
+function SendMail(to, subject, body) end
+function RepairAllItems() end
+function InRepairMode() return STUB.repairMode or false end
 STUB.logSelection = 0
 function SelectQuestLogEntry(i) STUB.logSelection = i end
 function GetQuestLogSelection() return STUB.logSelection end
