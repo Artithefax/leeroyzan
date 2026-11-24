@@ -3,6 +3,40 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.6.0
+
+### Fixed: gold in the Leeroylink statistics
+The gold numbers were off in several places. **Leeroylink 0.12** books every change of gold to the right source:
+- **Auction house sales** arrive by mail and were counted as *Mail*. Leeroylink now reads the mail when you take the gold: AH sales count as *Auction house*, refunds for outbid or cancelled auctions are set off against your AH spending, gold from your own characters is a **transfer**, gold from other players too.
+- **Quest gold and your share of the group loot** often landed in *Other*, because the game sends the gold before the message that explains it. Every change now waits a moment for that message.
+- **Repairs** are separate from purchases at the vendor; **postage** is separate from gold you send.
+- **Farming spots** no longer count vendor sales: selling grey items in Stormwind made it the "best gold zone". A zone now counts its coins, quest gold and the vendor value of the loot from there.
+- A **check** after every session: if income minus spending does not match the balance, the report says how much could not be assigned.
+- If the game had not told addons the balance at login yet, the first jump from 0 is no longer counted as income.
+
+In Leeroyzan the gold of a session is now **farmed** (loot, quests, vendor sales, AH sales) instead of the change of the balance. Spending is shown by kind, **transfers** (alts, mail from and to players, trade) get a line of their own and count neither as income nor as spending. The record *Best gold per hour*, the chart and Discord use farmed gold. Sessions recorded before 0.12 keep their numbers and are marked as older recordings.
+
+### New: statistics from building blocks
+- More than 40 **building blocks** – play time, time split, level, experience by source, next level, reputation, gold farmed, net, income, expenses, transfers, balance, best gold zones, quests, loot, kills, deaths, damage and healing with DPS/HPS, dungeons and bosses, distance, discoveries, professions, summary, new records and a ranking of your characters.
+- **Templates** put them together: *Compact* (the Discord post so far), *Leveling*, *Gold*, *Dungeons*, *Everything* – and your own. Per block: *per hour*, *compare with the period before*, *only if > 0*, *how many*.
+- **Templates …** on the Leeroylink page opens the editor with a live preview; the box at the top of the page shows the sessions with a template instead of the standard view. *Discord ↗* sends what you see – a session or the whole selection.
+- Periods follow the **play day** (it ends at 04:00, so a session at 1 am still belongs to the evening) and **calendar weeks** (Monday to Sunday): *Today, Yesterday, This week, Last week, Last 30 days*.
+
+### New: automatic Discord posts with a schedule
+*Settings → Discord → Post automatically* lists **post jobs**: after every session, **daily** or **weekly** – each with its own template, characters (all together or one entry per character), channel, minimum play time, balance on or off.
+- Daily and weekly reports cover a **finished** play day or week and go out from 04:00 (on Monday for the week), or later at a time you choose.
+- Leeroyzan posts while it is running; a missed date is **caught up** at the next start (optional). While WoW is still running, the report waits until you log out. Nothing is posted twice.
+- *Preview* and *Send now (test)* for every job. The old tick *Send automatically after every session* became the job *After every session*.
+
+### New: share AH prices
+- **Share → Send AH prices** posts your Auctionator prices to Discord as a `.lzprices` file – **every price with the time it was seen**.
+- **Share → Take over AH prices**: open the file, drag it into the window, or copy its link in Discord and paste it. For each item the **newest** price wins, in whatever order files arrive; older prices only go into the history.
+- Shared prices count for **7 days** after the scan (adjustable). Older ones count nowhere – not as the current price, not for *Bargains*, not in the tooltip.
+- The **Auction house** page shows prices from friends (⇄ and who saw it when); **Leeroylink** shows them in item tooltips when they are newer than your own.
+
+### Changed: the Share page
+The page is a guided flow now: four tasks at the top – *Send addons*, *Take over addons*, *Send AH prices*, *Take over AH prices* – and below only the numbered steps for the chosen one, each with a sentence what happens. If no Discord channel is set up yet, the page says so and takes the webhook address right there. The preview shows the readable list your friend gets; the code is one click away.
+
 ## 2.5.1
 
 ### Leeroylink 0.11.0: switch to a friend's layer
