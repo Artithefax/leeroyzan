@@ -170,6 +170,31 @@ class WindowSmokeTests(unittest.TestCase):
         for w in app.winfo_children():
             if w.winfo_class() == "Toplevel":
                 w.destroy()
+        # Teilen: jede Aufgabe einmal zeigen, eine Preisdatei übernehmen
+        import time as _t
+        from leeroy.ahshare import PRICE_KIND, load_shared
+        app.show_page("share")
+        for key, _, _ in app.SHARE_TASKS:
+            app.share_task(key)
+            app.update()
+        app.share_show_code.set(True)
+        app.rebuild_share()
+        if not app.flavor:            # im Gesamtlauf liest die App eine fremde Konfiguration (CONFIG_FILE beim ersten Import)
+            return
+        prices = {"kind": PRICE_KIND, "v": 1, "flavor": app.flavor, "realm": "Test Allianz", "by": "Anna",
+                  "at": int(_t.time()), "p": {"2589": [34, int(_t.time()) - 60]}}
+        app._ah_import_bytes(json.dumps(prices).encode())
+        self.assertIn("2589", load_shared(app.flavor)["realms"]["Test Allianz"])
+        app.update()
+        app.show_page("auction")
+        deadline = _t.time() + 3
+        while _t.time() < deadline and not app.ah_rows_by_realm.get("Test Allianz"):
+            app.update()
+            _t.sleep(0.02)
+        app.ah_realm_var.set("Test Allianz")
+        app._ah_build_rows()
+        app.update()
+        self.assertTrue(any(r.get("shared") for r in app.ah_rows))
 
     def test_layouts_and_languages(self):
         for layout in ("klassisch", "seitenleiste", "launcher"):

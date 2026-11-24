@@ -264,8 +264,8 @@ class WidgetsMixin:
             if not self.cf_results and self.cf_key() and not self.cf_searching:
                 self.cf_search()
         elif key == "share":
-            self.rebuild_share()
-            self.refresh_recv_files()
+            self._share_discord_status()
+            self.share_task(getattr(self, "share_task_key", "send"), save=False)
         elif key == "updates":
             self.refresh_updates_page()
         elif key == "diagnose" and self._page_stale(key):

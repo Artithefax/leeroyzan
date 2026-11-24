@@ -25,6 +25,7 @@ from ..curseforge import (
     toc_curse_id,
     zip_name_matches,
 )
+from ..ahshare import PRICE_EXT
 from ..sharing import LIST_EXT, PACK_EXT
 
 
@@ -284,10 +285,13 @@ class InstallMixin:
         zips = [str(p) for p in paths if p.suffix.lower() == ".zip"]
         packs = [str(p) for p in paths if p.suffix.lower() == PACK_EXT]
         lists = [str(p) for p in paths if p.suffix.lower() == LIST_EXT]
-        if not zips and not packs and not lists:
-            self.set_status(tr("Nur .zip-, .lzpack- und .lzlist-Dateien können abgelegt werden."))
+        prices = [p for p in paths if p.suffix.lower() == PRICE_EXT]
+        if not zips and not packs and not lists and not prices:
+            self.set_status(tr("Nur .zip-, .lzpack-, .lzlist- und .lzprices-Dateien können abgelegt werden."))
             return
-        if lists:
+        if prices:
+            self.after(50, lambda: [self.ah_import_file(p) for p in prices])
+        elif lists:
             self.after(50, lambda: self.import_list_dialog(lists[0]))
         elif packs:
             self.after(50, lambda: self.import_pack_dialog(packs[0]))

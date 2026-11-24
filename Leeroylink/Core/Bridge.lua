@@ -77,6 +77,23 @@ local function sanitize(raw)
 		imp.questGuide = { on = raw.questGuide.on ~= false, at = tonumber(raw.questGuide.at) or 0 }
 	end
 
+	-- AH prices shared by friends (Leeroyzan only writes the ones that still count):
+	-- { days, by = { names }, realms = { [realm] = { [itemID] = "price:time:nameIndex" } } }
+	local sp = raw.sharedPrices
+	if type(sp) == "table" and type(sp.realms) == "table" then
+		local out = { days = tonumber(sp.days) or 7, by = strList(sp.by, 200), realms = {} }
+		for realm, items in pairs(sp.realms) do
+			if type(realm) == "string" and type(items) == "table" then
+				local t = {}
+				for id, e in pairs(items) do
+					if type(id) == "number" and type(e) == "string" then t[id] = e end
+				end
+				out.realms[realm] = t
+			end
+		end
+		imp.sharedPrices = out
+	end
+
 	imp.knownIssues = {}
 	if type(raw.knownIssues) == "table" then
 		for i = 1, math.min(#raw.knownIssues, 100) do

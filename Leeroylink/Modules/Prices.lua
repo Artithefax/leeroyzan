@@ -110,6 +110,40 @@ end)
 ----------------------------------------------------------------------
 -- Tooltip
 ----------------------------------------------------------------------
+-- Prices friends shared through Leeroyzan (Data.lua). Which realm table fits this character: the only one,
+-- else the one naming this faction or realm, else the biggest.
+local sharedRealm
+local function sharedTable()
+	local sp = LZ.import and LZ.import.sharedPrices
+	if not sp then return nil end
+	if sharedRealm ~= nil then return sp.realms[sharedRealm], sp end
+	local faction = UnitFactionGroup and UnitFactionGroup("player") or ""
+	local realm = (LZ.realm or ""):lower()
+	local best, bestScore = nil, -1
+	for key, items in pairs(sp.realms) do
+		local n = 0
+		for _ in pairs(items) do n = n + 1 end
+		local k = key:lower()
+		local score = n
+		if faction ~= "" and k:find(faction:lower(), 1, true) then score = score + 1e7 end
+		if realm ~= "" and k:find(realm, 1, true) then score = score + 1e6 end
+		if score > bestScore then best, bestScore = key, score end
+	end
+	sharedRealm = best or false
+	return best and sp.realms[best], sp
+end
+
+-- price, time, name of a shared price that still counts (nil if none)
+function mod:Shared(itemID)
+	local items, sp = sharedTable()
+	local e = items and items[itemID]
+	if not e then return nil end
+	local p, t, b = e:match("^(%d+):(%d+):(%d+)$")
+	p, t, b = tonumber(p), tonumber(t), tonumber(b)
+	if not (p and t) or (time() - t) > (sp.days or 7) * DAY then return nil end
+	return p, t, sp.by[b or 0]
+end
+
 local function onItemTooltip(tooltip, data)
 	if not (mod.enabled and mod.opt.tooltip) then return end
 	local itemID = data and data.id
@@ -117,10 +151,19 @@ local function onItemTooltip(tooltip, data)
 		local _, link = tooltip:GetItem()
 		itemID = LZ.ItemID(link)
 	end
-	local e = itemID and LZ.gdb.prices[itemID]
-	if not e or not e.last then return end
+	if not itemID then return end
+	local e = LZ.gdb.prices[itemID]
+	local sp, st, by = mod:Shared(itemID)
+	local line
+	if sp and (not e or not e.last or (e.t or 0) < st) then -- a friend saw it later than you did
+		line = string.format("AH: %s (%s, %s)", LZ.FormatMoney(sp), LZ.Ago(st),
+			by and by ~= "" and string.format(T("von %s", "by %s"), by) or T("geteilt", "shared"))
+	elseif e and e.last then
+		line = string.format("AH: %s (%s)", LZ.FormatMoney(e.last), LZ.Ago(e.t))
+	else
+		return
+	end
 	local avg, n = mod:Average(itemID, 30)
-	local line = string.format("AH: %s (%s)", LZ.FormatMoney(e.last), LZ.Ago(e.t))
 	if avg and n > 1 then line = line .. string.format("  Ø30d: %s", LZ.FormatMoney(avg)) end
 	tooltip:AddLine(line, 0.9, 0.8, 0.4)
 	if tooltip.Show then tooltip:Show() end

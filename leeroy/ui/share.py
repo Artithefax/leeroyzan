@@ -23,7 +23,7 @@ from ..sharing import (
     list_to_file_text,
     parse_list_text,
 )
-from .discordshare import DISCORD_BTN
+from ..reports import DISCORD_WEBHOOK_RE
 from .theme import THEME
 from .dialogs import SET_ALL_OFF, SET_ALL_ON
 
@@ -32,90 +32,217 @@ class SharePage:
     """Teil des Hauptfensters (wird in App eingemischt)."""
 
     # --- Teilen ------------------------------------------------------------------ #
+    # Die Seite ist ein geführter Ablauf: oben wählt man, was man tun will (vier Kacheln), darunter stehen nur
+    # die Schritte dafür – nummeriert, jeder mit einem Satz, was passiert.
+    SHARE_TASKS = [("send", "Addons schicken", "Deine Addon-Liste an Freunde – per Discord, als Text oder als Datei."),
+                   ("receive", "Addons übernehmen", "Liste oder Paket von einem Freund einfügen und installieren."),
+                   ("ahsend", "AH-Preise schicken", "Deine gescannten Preise posten, damit andere nicht scannen müssen."),
+                   ("ahreceive", "AH-Preise übernehmen", "Die Preisdatei eines Freundes aus Discord laden.")]
+
     def _page_share(self):
         t = THEME
-        page, _ = self._page("share", tr("Teilen"), tr("Addons mit Freunden teilen"),
-                             tr("Eine Download-Liste enthält nur Verweise (CurseForge/GitHub) und passt als Text in "
-                             "Discord oder eine Kurznachricht. Ein Paket (.lzpack) enthält zusätzlich die Dateien "
-                             "von ZIP- und GitHub-Addons."))
-        cols = ttk.Frame(page)
-        cols.pack(fill="both", expand=True, pady=(12, 0))
-        cols.columnconfigure(0, weight=1, uniform="c")
-        cols.columnconfigure(1, weight=1, uniform="c")
-        cols.rowconfigure(0, weight=1)
-        lf = ttk.Frame(cols)
-        lf.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        rf = ttk.Frame(cols)
-        rf.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        page, _ = self._page("share", tr("Teilen"), tr("Mit Freunden teilen"),
+                             tr("Wähle, was du tun willst. Was du schickst, kommt bei deinen Freunden direkt in Leeroyzan "
+                                "an. Builds, Guides, Quests und Charaktere teilst du dort, wo du sie siehst – mit dem Knopf "
+                                "„Discord ↗“."))
+        tiles = ttk.Frame(page)
+        tiles.pack(fill="x", pady=(12, 0))
+        self.share_tiles = {}
+        for i, (key, title, text) in enumerate(self.SHARE_TASKS):
+            tiles.columnconfigure(i, weight=1, uniform="t")
+            tile = tk.Frame(tiles, bg=t["panel"], highlightthickness=1, highlightbackground=t["border_soft"],
+                            highlightcolor=t["border_soft"], cursor="hand2")
+            tile.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 8, 0))
+            num = tk.Label(tile, text=f"{i + 1}", bg=t["panel"], fg=t["gold"], font=self.fonts["page"], cursor="hand2")
+            num.pack(side="left", anchor="n", padx=(12, 6), pady=(8, 8))
+            body = tk.Frame(tile, bg=t["panel"], cursor="hand2")
+            body.pack(side="left", fill="both", expand=True, pady=(10, 10), padx=(0, 10))
+            head = tk.Label(body, text=tr(title), bg=t["panel"], fg=t["text"], font=self.fonts["bold"], anchor="w", cursor="hand2")
+            head.pack(fill="x")
+            sub = tk.Label(body, text=tr(text), bg=t["panel"], fg=t["text_faint2"], font=self.fonts["small"], anchor="w",
+                           justify="left", wraplength=210, cursor="hand2")
+            sub.pack(fill="x")
+            for w in (tile, num, body, head, sub):
+                w.bind("<Button-1>", lambda e, k=key: self.share_task(k))
+            self.share_tiles[key] = (tile, head)
 
-        box = self._card_box(lf, pady=(0, 0), fill="both", expand=True, title=tr("Senden"))
-        scope = ttk.Frame(box, style="Panel.TFrame")
-        scope.pack(fill="x")
+        self.share_discord_row = ttk.Frame(page)
+        self.share_discord_row.pack(fill="x", pady=(10, 0))
+        self._share_discord_status()
+
+        host = ttk.Frame(page)
+        host.pack(fill="both", expand=True, pady=(10, 0))
+        self.share_panels = {}
+
+        # --- 1: Addons schicken
+        box = self._card_box(host, pady=(0, 0), fill="both", expand=True)
+        self.share_panels["send"] = box.master
+        cols = ttk.Frame(box, style="Panel.TFrame")
+        cols.pack(fill="both", expand=True)
+        left = ttk.Frame(cols, style="Panel.TFrame")
+        left.pack(side="left", fill="y")
+        right = ttk.Frame(cols, style="Panel.TFrame")
+        right.pack(side="left", fill="both", expand=True, padx=(20, 0))
+        self._share_step(left, 1, tr("Welche Addons?"))
+        scope = ttk.Frame(left, style="Panel.TFrame")
+        scope.pack(fill="x", pady=(4, 0))
         self.share_sel_rb = ttk.Radiobutton(scope, text=tr("Ausgewählte Addons"), value="sel",
                                             variable=self.share_scope, command=self.rebuild_share)
-        self.share_sel_rb.pack(side="left")
+        self.share_sel_rb.pack(anchor="w")
         self.share_all_rb = ttk.Radiobutton(scope, text=tr("Alle Addons"), value="all",
                                             variable=self.share_scope, command=self.rebuild_share)
-        self.share_all_rb.pack(side="left", padx=(16, 0))
-        opt = ttk.Frame(box, style="Panel.TFrame")
-        opt.pack(fill="x", pady=(8, 0))
-        ttk.Checkbutton(opt, text=tr("Genau meine Versionen"), variable=self.share_exact,
-                        command=self.rebuild_share).pack(side="left")
-        ttk.Checkbutton(opt, text=tr("Addon-Sets mitsenden"), variable=self.share_sets,
-                        command=self.rebuild_share).pack(side="left", padx=(16, 0))
-        szr = ttk.Frame(box, style="Panel.TFrame")
-        szr.pack(fill="x", pady=(8, 8))
-        ttk.Label(szr, text=tr("Nachrichtenlänge"), style="Panel.TLabel").pack(side="left", padx=(0, 8))
-        cb = ttk.Combobox(szr, textvariable=self.share_size, values=[tr(k) for k in LIST_PART_SIZES],
-                          state="readonly", width=28)
-        cb.pack(side="left")
+        self.share_all_rb.pack(anchor="w", pady=(4, 0))
+        ttk.Checkbutton(left, text=tr("Genau meine Versionen"), variable=self.share_exact,
+                        command=self.rebuild_share).pack(anchor="w", pady=(8, 0))
+        ttk.Checkbutton(left, text=tr("Addon-Sets mitsenden"), variable=self.share_sets,
+                        command=self.rebuild_share).pack(anchor="w", pady=(4, 0))
+        self._share_step(left, 2, tr("Wie schicken?"), pady=(16, 0))
+        for label, text, cmd, primary in (
+                (tr("In Discord posten"), tr("Liste mit Links und dem Code, den Freunde bei „Addons übernehmen“ einfügen."),
+                 lambda: self.share_addons_discord(), True),
+                (tr("Code kopieren"), tr("Für einen Chat ohne Webhook: einfügen und senden."), self.copy_share_code, False),
+                (tr("Als Datei speichern"), tr("Eine .lzlist-Datei, die du verschicken kannst."), self.save_share_file, False),
+                (tr("Als Paket mit Dateien"), tr("Nur nötig für Addons ohne CurseForge oder GitHub (.lzpack)."),
+                 self.export_share_pack, False)):
+            self._share_action(left, label, text, cmd, primary)
+        ttk.Label(right, text=tr("Das bekommt dein Freund"), style="CardKicker.TLabel").pack(anchor="w")
+        prow = ttk.Frame(right, style="Panel.TFrame")
+        prow.pack(side="bottom", fill="x", pady=(8, 0))
+        ttk.Button(prow, text=tr("Lesbare Liste kopieren"), command=self.copy_share_readable).pack(side="left")
+        self.share_show_code = tk.BooleanVar(value=False)
+        ttk.Checkbutton(prow, text=tr("Code anzeigen"), variable=self.share_show_code, command=self.rebuild_share).pack(
+            side="left", padx=(12, 0))
+        cb = ttk.Combobox(prow, textvariable=self.share_size, values=[tr(k) for k in LIST_PART_SIZES],
+                          state="readonly", width=20)
+        cb.pack(side="right")
         cb.bind("<<ComboboxSelected>>", lambda e: self.rebuild_share())
-        sf, self.share_txt = self._text(box)
-        sf.pack(fill="both", expand=True)
-        ttk.Label(box, textvariable=self.share_info, style="Panel.TLabel", wraplength=470,
-                  justify="left").pack(anchor="w", pady=(6, 0))
-        brow = ttk.Frame(box, style="Panel.TFrame")
-        brow.pack(fill="x", pady=(8, 0))
-        ttk.Button(brow, text=tr("Code kopieren"), style="Primary.TButton", command=self.copy_share_code).pack(side="left")
-        ttk.Button(brow, text=tr("Lesbare Liste kopieren"), command=self.copy_share_readable).pack(side="left", padx=(6, 0))
-        ttk.Button(brow, text=DISCORD_BTN, command=lambda: self.share_addons_discord()).pack(side="left", padx=(6, 0))
-        prow = ttk.Frame(box, style="Panel.TFrame")
-        prow.pack(fill="x", pady=(6, 0))
-        ttk.Button(prow, text=tr("Als .lzlist speichern"), command=self.save_share_file).pack(side="left")
-        ttk.Button(prow, text=tr("Als Paket (.lzpack) speichern"), command=self.export_share_pack).pack(side="left",
-                                                                                                  padx=(6, 0))
+        ttk.Label(prow, text=tr("Nachrichtenlänge"), style="Panel.TLabel").pack(side="right", padx=(0, 8))
+        ttk.Label(right, textvariable=self.share_info, style="Panel.TLabel", wraplength=560,
+                  justify="left").pack(side="bottom", anchor="w", pady=(6, 0))
+        sf, self.share_txt = self._text(right)
+        sf.pack(fill="both", expand=True, pady=(6, 0))
 
-        rbox = self._card_box(rf, pady=(0, 0), fill="both", expand=True, title=tr("Empfangen"))
-        ttk.Label(rbox, style="Panel.TLabel", wraplength=470, justify="left",
-                  text=tr("Code aus Discord/Chat hier einfügen (alle Teile, Reihenfolge egal):")).pack(anchor="w")
-        rf2, self.import_txt = self._text(rbox, readonly=False)
+        # --- 2: Addons übernehmen
+        rbox = self._card_box(host, pady=(0, 0), fill="both", expand=True)
+        self.share_panels["receive"] = rbox.master
+        rcols = ttk.Frame(rbox, style="Panel.TFrame")
+        rcols.pack(fill="both", expand=True)
+        rl = ttk.Frame(rcols, style="Panel.TFrame")
+        rl.pack(side="left", fill="both", expand=True)
+        rr = ttk.Frame(rcols, style="Panel.TFrame", width=420)
+        rr.pack(side="left", fill="y", padx=(20, 0))
+        rr.pack_propagate(False)
+        self._share_step(rl, 1, tr("Einfügen, was dein Freund geschickt hat"))
+        ttk.Label(rl, style="Panel.TLabel", foreground=t["text_faint2"], wraplength=560, justify="left",
+                  text=tr("Den Code aus Discord oder dem Chat – bei mehreren Teilen alle, die Reihenfolge ist egal.")).pack(anchor="w")
+        rf2, self.import_txt = self._text(rl, readonly=False)
         rf2.pack(fill="both", expand=True, pady=(6, 0))
         self.import_txt.bind("<<Modified>>", self._import_modified)
-        irow = ttk.Frame(rbox, style="Panel.TFrame")
+        irow = ttk.Frame(rl, style="Panel.TFrame")
         irow.pack(fill="x", pady=(8, 0))
         ttk.Button(irow, text=tr("Aus Zwischenablage einfügen"), command=self.paste_import).pack(side="left")
         ttk.Button(irow, text=tr("Leeren"), command=lambda: self.import_txt.delete("1.0", "end")).pack(side="left", padx=(6, 0))
-        ttk.Label(rbox, textvariable=self.import_preview, style="Panel.TLabel", wraplength=470,
-                  justify="left").pack(anchor="w", pady=(8, 0))
-        self.import_btn = ttk.Button(rbox, text=tr("Installieren"), style="Primary.TButton", command=self.import_list_now)
-        self.import_btn.pack(anchor="w", pady=(6, 0))
-        self.import_btn.state(["disabled"])
-        tk.Frame(rbox, height=1, bg=t["line"]).pack(fill="x", pady=(12, 10))
-        ttk.Label(rbox, text=tr("Oder eine Datei aus deinem Download-Ordner (.lzlist / .lzpack):"),
-                  style="Panel.TLabel").pack(anchor="w")
-        frow = ttk.Frame(rbox, style="Panel.TFrame")
+        ttk.Label(rl, text=tr("… oder eine Datei (.lzlist / .lzpack) öffnen – oder einfach ins Fenster ziehen:"),
+                  style="Panel.TLabel").pack(anchor="w", pady=(12, 0))
+        frow = ttk.Frame(rl, style="Panel.TFrame")
         frow.pack(fill="x", pady=(6, 0))
         self.recv_cb = ttk.Combobox(frow, textvariable=self.recv_file_var, state="readonly")
         self.recv_cb.pack(side="left", fill="x", expand=True)
         ttk.Button(frow, text=tr("Öffnen"), command=self.open_recv_file).pack(side="left", padx=(8, 0))
         ttk.Button(frow, text=tr("Andere …"), command=self.open_other_share_file).pack(side="left", padx=(8, 0))
+        self._share_step(rr, 2, tr("Prüfen und installieren"))
+        ttk.Label(rr, textvariable=self.import_preview, style="Panel.TLabel", wraplength=400,
+                  justify="left").pack(anchor="w", pady=(4, 0))
+        self.import_btn = ttk.Button(rr, text=tr("Installieren"), style="Primary.TButton", command=self.import_list_now)
+        self.import_btn.pack(anchor="w", pady=(10, 0))
+        self.import_btn.state(["disabled"])
         self._import_data = None
+
+        # --- 3 und 4: AH-Preise
+        self._ah_share_panels(host)
+        self.share_task(self.cfg.get("share_task", "send"), save=False)
+
+    def _share_step(self, parent, n: int, title: str, pady=(0, 0)):
+        row = ttk.Frame(parent, style="Panel.TFrame")
+        row.pack(fill="x", pady=pady)
+        tk.Label(row, text=str(n), width=2, bg=THEME["btn_primary"], fg=THEME["btn_text"], font=self.fonts["bold"]).pack(side="left")
+        ttk.Label(row, text=title, style="Panel.TLabel", font=self.fonts["bold"]).pack(side="left", padx=(8, 0))
+        return row
+
+    def _share_action(self, parent, label: str, text: str, cmd, primary: bool = False):
+        row = ttk.Frame(parent, style="Panel.TFrame")
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Button(row, text=label, width=22, style="Primary.TButton" if primary else "TButton", command=cmd).pack(side="left")
+        ttk.Label(row, text=text, style="Panel.TLabel", foreground=THEME["text_faint2"], wraplength=300,
+                  justify="left").pack(side="left", padx=(10, 0))
+        return row
+
+    def share_task(self, key: str, save: bool = True):
+        """Eine der vier Aufgaben zeigen."""
+        if key not in self.share_panels:
+            key = "send"
+        self.share_task_key = key
+        t = THEME
+        for k, (tile, head) in self.share_tiles.items():
+            on = k == key
+            tile.configure(highlightbackground=t["gold"] if on else t["border_soft"],
+                           highlightcolor=t["gold"] if on else t["border_soft"], highlightthickness=2 if on else 1)
+            head.configure(fg=t["gold"] if on else t["text"])
+        for k, panel in self.share_panels.items():
+            panel.pack_forget()
+        self.share_panels[key].pack(fill="both", expand=True)
+        if save:
+            self.cfg["share_task"] = key
+        if key == "send":
+            self.rebuild_share()
+        elif key == "receive":
+            self.refresh_recv_files()
+        else:
+            self.ah_share_refresh()
+
+    def _share_discord_status(self):
+        """Ein Streifen über den Aufgaben: ist ein Discord-Kanal eingerichtet? Wenn nicht, gleich hier eintragen."""
+        row = self.share_discord_row
+        for w in row.winfo_children():
+            w.destroy()
+        t = THEME
+        if self.share_hook():
+            ttk.Label(row, text="✓ " + tr("Discord-Kanal eingerichtet – „In Discord posten“ schickt direkt dorthin."),
+                      style="Body.TLabel", foreground=t["ok"]).pack(side="left")
+            ttk.Button(row, text=tr("Ändern"), command=lambda: self.show_page("settings")).pack(side="right")
+            return
+        ttk.Label(row, text=tr("Discord noch nicht eingerichtet. Webhook-Adresse deines Kanals:"), style="Body.TLabel").pack(side="left")
+        var = tk.StringVar()
+        row.keep = var
+        e = ttk.Entry(row, textvariable=var, width=46)
+        e.pack(side="left", padx=(8, 0), fill="x", expand=True)
+
+        def save(*_):
+            url = var.get().strip()
+            if not DISCORD_WEBHOOK_RE.match(url):
+                self.set_status(tr("Das ist keine Discord-Webhook-Adresse."))
+                return
+            self.cfg["discord_share_webhook"] = url
+            if not self.cfg.get("discord_webhook"):
+                self.cfg["discord_webhook"] = url
+                self.discord_var.set(url)
+            self.discord_share_var.set(url)
+            save_config(self.cfg)
+            self.notify(tr("Discord-Kanal gespeichert."), "ok", timeout=6000)
+            self._share_discord_status()
+        e.bind("<Return>", save)
+        ttk.Button(row, text=tr("Speichern"), style="Primary.TButton", command=save).pack(side="left", padx=(8, 0))
+        ttk.Button(row, text=tr("So geht's"), command=lambda: self.info(tr(
+            "In Discord: Rechtsklick auf den Kanal → Kanal bearbeiten → Integrationen → Webhooks → Neuer Webhook → "
+            "„Webhook-URL kopieren“. Die Adresse hier einfügen und speichern. Ohne Webhook geht „Code kopieren“ "
+            "und „Als Datei speichern“ trotzdem."))).pack(side="left", padx=(8, 0))
 
     # ----- Teilen-Seite ------------------------------------------------------------ #
     def share_selection(self):
         sel = self.selected_addons()
         self.share_scope.set("sel" if sel else "all")
         self.show_page("share")
+        self.share_task("send")
 
     def _share_addons(self) -> list:
         if self.share_scope.get() == "sel":
@@ -144,10 +271,13 @@ class SharePage:
         size = next((v for k, v in LIST_PART_SIZES.items() if tr(k) == self.share_size.get()), 1800)
         self._share_parts = list_to_code(self._share_payload, size)
         parts = []
-        for i, p in enumerate(self._share_parts, 1):
-            if len(self._share_parts) > 1:
-                parts.append((tr("Teil {0} von {1} – als eigene Nachricht senden:\n", i, len(self._share_parts)), "dim"))
-            parts.append((p + "\n\n", ""))
+        if getattr(self, "share_show_code", None) is not None and self.share_show_code.get():
+            for i, p in enumerate(self._share_parts, 1):
+                if len(self._share_parts) > 1:
+                    parts.append((tr("Teil {0} von {1} – als eigene Nachricht senden:\n", i, len(self._share_parts)), "dim"))
+                parts.append((p + "\n\n", ""))
+        else:
+            parts.append((list_readable(self._share_payload) + "\n", ""))
         self._set_text(self.share_txt, parts=parts)
         n_c = sum(1 for e in self._share_payload["a"] if e["t"] == "c")
         info = (tr("{0} Addons ({1} CurseForge, {2} GitHub) · {3} Teil(e), {4} Zeichen.", len(self._share_payload['a']), n_c, len(self._share_payload['a']) - n_c, len(self._share_parts), sum(len(x) for x in self._share_parts)))
@@ -284,6 +414,7 @@ class SharePage:
     def import_list_dialog(self, path=None):
         """Liste aus Datei (oder Drag & Drop) auf der Seite „Teilen“ anzeigen."""
         self.show_page("share")
+        self.share_task("receive")
         if not path:
             self.import_txt.focus_set()
             return
@@ -406,6 +537,7 @@ class SharePage:
             return
         if not path:
             self.show_page("share")
+            self.share_task("receive")
             return
         try:
             manifest = read_pack(Path(path))

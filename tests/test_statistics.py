@@ -182,6 +182,11 @@ class TranslationTests(unittest.TestCase):
         texts |= set(ap.WHEN.values()) | set(ap.CHAR_MODES.values()) | set(ap.WEBHOOKS.values())
         texts |= set(rp.TRANSFER_NAMES.values()) | set(rp.MONEY_SOURCES.values())
         texts |= {t["name"] for t in mt.BUILTIN_TEMPLATES.values()} | {j["name"] for j in ap.default_jobs({})}
+        try:
+            from leeroy.ui.share import SharePage
+            texts |= {x for _, title, text in SharePage.SHARE_TASKS for x in (title, text)}
+        except ImportError:                     # ohne tkinter
+            pass
         missing = sorted(x for x in texts if x not in TRANSLATIONS["en"])
         self.assertEqual(missing, [])
 

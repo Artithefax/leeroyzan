@@ -227,13 +227,28 @@ def owned_counts(state: dict) -> dict[int, int]:
 def auction_rows(data: dict, qdb: "QuestDB | None", cm: dict | None, state: dict, locale: str) -> dict[str, list[dict]]:
     """Alle Zeilen je Realm mit Gegenstandsdetails – läuft im Hintergrund, nicht im Fenster-Thread."""
     owned = owned_counts(state)
+    shared = data.get("shared") or {}
     out: dict[str, list[dict]] = {}
     for realm, entries in data.get("realms", {}).items():
         rows = []
+        origin = shared.get(realm) or {}
         for key, e in entries.items():
             r = auction_row(key, e, data["vendor"])
             r.update(item_details(r["id"], qdb, cm, state, locale))
             r["owned"] = owned.get(r["id"], 0)
+            r["shared"] = origin.get(key)          # {"by", "ts", "current"}: Preis (auch) von Freunden
             rows.append(r)
         out[realm] = rows
     return out
+
+
+def with_shared_prices(data: dict, store: dict, max_days: int, now: float | None = None) -> dict:
+    """Auctionator-Daten um geteilte Preise ergänzt (nur die, die noch zählen). Das Original bleibt unverändert."""
+    from .ahshare import fresh_prices, shared_rows_for_realm
+    realms = dict(data.get("realms", {}))
+    origins = {}
+    for realm in set(realms) | set(store.get("realms", {})):
+        fresh = fresh_prices(store, realm, max_days, now)
+        if fresh:
+            realms[realm], origins[realm] = shared_rows_for_realm(realms.get(realm, {}), fresh)
+    return dict(data, realms=realms, shared=origins)

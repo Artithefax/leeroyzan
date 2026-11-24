@@ -1026,13 +1026,24 @@ def _retry_after(e: urllib.error.HTTPError) -> float:
         return 2.0
 
 
-def discord_send(url: str, payload: dict, sleep=time.sleep) -> None:
+def discord_send(url: str, payload: dict, sleep=time.sleep, file: tuple[str, bytes] | None = None) -> None:
+    """Eine Nachricht an den Webhook – mit file=(Dateiname, Inhalt) als Anhang (multipart)."""
     if not DISCORD_WEBHOOK_RE.match(url.strip()):
         raise ValueError(tr("Das ist keine Discord-Webhook-Adresse."))
+    ctype = "application/json"
     data = json.dumps(payload).encode("utf-8")
+    if file:
+        name, content = file
+        boundary = "LeeroyzanPart" + str(int(time.time() * 1000))
+        safe = re.sub(r'[^\w.\- ]+', "_", name)[:80] or "datei.txt"
+        data = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"payload_json\"\r\n"
+                f"Content-Type: application/json\r\n\r\n").encode("utf-8") + data + (
+                f"\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"files[0]\"; filename=\"{safe}\"\r\n"
+                f"Content-Type: application/octet-stream\r\n\r\n").encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode()
+        ctype = f"multipart/form-data; boundary={boundary}"
     for attempt in range(DISCORD_RETRIES + 1):
         req = urllib.request.Request(url.strip(), data=data, method="POST",
-                                     headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
+                                     headers={"Content-Type": ctype, "User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 r.read()
