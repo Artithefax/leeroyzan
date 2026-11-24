@@ -21,7 +21,7 @@ from ..sessions import (
     link_savedvariables,
     link_signature,
     load_sessions,
-    session_net_money,
+    session_farmed,
     sessions_dir,
 )
 from ..linkaddon import (
@@ -173,7 +173,7 @@ class SessionsPage:
         tree.insert("", "end", iid="total", tags=("total",), values=(
             tr("Σ Gesamt"), plural(len(shown), "{0} Sitzung", "{0} Sitzungen"),
             fmt_dur(sum(s["played"] for s in shown)), fmt_int(sum(s["xp"]["total"] for s in shown)),
-            fmt_money(sum(session_net_money(s) for s in shown), sign=True)))
+            fmt_money(sum(session_farmed(s) for s in shown), sign=True)))
         target = "total"
         for i, s in enumerate(shown):
             tags = ["odd"] if i % 2 else []
@@ -181,7 +181,7 @@ class SessionsPage:
                 tags.append("dim")
             tree.insert("", "end", iid=f"s{i}", tags=tuple(tags), values=(
                 datetime.fromtimestamp(s["start"]).strftime(tr("%d.%m.%Y  %H:%M")), labels.get(s["char"], s["char"]),
-                fmt_dur(s["played"]), fmt_int(s["xp"]["total"]), fmt_money(session_net_money(s), sign=True)))
+                fmt_dur(s["played"]), fmt_int(s["xp"]["total"]), fmt_money(session_farmed(s), sign=True)))
             if select == s["id"]:
                 target = f"s{i}"
         if not select and shown:

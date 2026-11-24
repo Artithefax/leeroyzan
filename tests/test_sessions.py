@@ -107,6 +107,64 @@ LeeroylinkDB = {
         self.assertIn("Leeroylink 0.1", text)
 
 
+class MoneyBreakdownTests(unittest.TestCase):
+    def session(self, money: dict) -> dict:
+        return lz.normalize_session({"char": "A-B", "start": 1000, "stop": 5000, "played": 4000, "money": money})
+
+    def test_new_sources(self):
+        s = self.session({"v": 2, "start": 1000, "stop": 9000, "income": 12000, "spent": 4000, "drift": 0,
+                          "gain": {"loot": 2000, "auction": 3000, "twink": 6000, "refund": 1000},
+                          "spend": {"auction": 1500, "mail": 2000, "repair": 500}})
+        b = lz.money_breakdown(s)
+        self.assertEqual(b["farmed"], 5000)                       # Beute + AH-Erlös, nicht der Twink
+        self.assertEqual(b["income"], 5000)
+        self.assertEqual(b["spend"], {"auction": 500, "repair": 500})   # Rückzahlung mit dem AH verrechnet
+        self.assertEqual(b["spent"], 1000)
+        self.assertEqual(b["transfers"], {"twink": (6000, 0), "mail": (0, 2000)})
+        self.assertEqual((b["tin"], b["tout"], b["net"]), (6000, 2000, 8000))
+        self.assertEqual(lz.session_headline(s).count("+50s"), 1)
+
+    def test_old_sessions(self):
+        s = self.session({"start": 0, "stop": 9000, "income": 9000, "spent": 0, "gain": {"loot": 1000, "mail": 8000}})
+        b = lz.money_breakdown(s)
+        self.assertEqual((b["farmed"], b["old"], b["transfers"]), (1000, True, {}))
+        self.assertIn("Ältere Aufzeichnung", lz.report_plain_text(lz.session_report(s)))
+        drift = self.session({"v": 2, "start": 0, "stop": 100, "income": 50, "spent": 0, "drift": 50, "gain": {"loot": 50}})
+        self.assertIn("50k konnten keiner Quelle zugeordnet werden", lz.report_plain_text(lz.session_report(drift)))
+
+    def test_zone_gold_with_loot_value(self):
+        s = self.session({"v": 2})
+        s["explore"]["zones"] = {"Wald": {"sec": 3600, "subs": [], "xp": 0, "money": 5000, "lootValue": 5000, "kills": 0}}
+        self.assertEqual(lz.zone_ranking([s])[0]["money_h"], 10000)
+
+
+@unittest.skipIf(run_addon_test is None, "lupa not installed")
+class AddonGoldTests(unittest.TestCase):
+    def test_balance_zero_at_login(self):
+        """Hat das Spiel den Kontostand beim Login noch nicht gemeldet, ist der erste Sprung keine Einnahme."""
+        from lupa import lua51
+        lua = lua51.LuaRuntime(unpack_returned_tuples=True)
+        lua.globals().TESTS_DIR = str(ROOT / "tests")
+        addon = (ROOT / "Leeroylink").as_posix()
+        res = lua.execute(f'''
+            dofile(TESTS_DIR .. "/wow_stub.lua")
+            STUB.money = 0
+            STUB.loadAddon("{addon}")
+            STUB.fire("ADDON_LOADED", "Leeroylink")
+            STUB.fire("PLAYER_LOGIN")
+            STUB.money = 123456
+            STUB.fire("PLAYER_MONEY")
+            STUB.advance(3)
+            STUB.money = STUB.money + 100
+            STUB.fire("PLAYER_MONEY")
+            STUB.advance(3)
+            local s = _G.Leeroylink.modules.Session:Current()
+            _G.Leeroylink.modules.Session:Update()
+            return s.money.start, s.money.income, s.money.drift
+        ''')
+        self.assertEqual(tuple(res), (123456, 100, 0))
+
+
 @unittest.skipIf(run_addon_test is None, "lupa not installed")
 class ImportTests(unittest.TestCase):
     @classmethod
@@ -137,7 +195,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(s["kills"]["boss"], 1)
         self.assertEqual(s["quests"]["done"][0]["title"], "Die Bedrohung der Gnolle")
         self.assertEqual(s["prof"]["skills"]["Kräuterkunde"]["b"], 46)
-        self.assertEqual(lz.session_net_money(s), 2625)
+        self.assertEqual(lz.session_net_money(s), 7885)
+        gold = lz.money_breakdown(s)                      # Leeroylink 0.12: Quellen, Transfers, Abgleich
+        self.assertEqual(gold["farmed"], 25 + 3500 + 300 + 800 + 40 + 1900)
+        self.assertEqual(gold["transfers"], {"twink": (5000, 2000)})
+        self.assertEqual(gold["spend"], {"vendor": 1200, "repair": 450, "postage": 30})
+        self.assertEqual((gold["drift"], gold["old"]), (0, False))
+        self.assertIn("Transfers: Twinks +50s / −20s", lz.report_plain_text(lz.session_report(s)))
         # the same session saved again later (continued after a /reload) replaces the old one
         newer = self.sv_text.replace(f'["saved"] = {s["saved"]},', f'["saved"] = {s["saved"] + 100},')
         self.assertNotEqual(newer, self.sv_text)

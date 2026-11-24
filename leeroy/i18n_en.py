@@ -1417,4 +1417,21 @@ EN: dict[str, str] = {
     'Tank': 'Tank',
     'Heiler': 'Healer',
     'DPS': 'DPS',
+    # 2.6.0: Gold aus Leeroylink 0.12
+    'Reparatur': 'Repairs',
+    'Porto': 'Postage',
+    'Nachnahme': 'Cash on delivery',
+    'AH-Rückzahlung': 'AH refund',
+    'Twinks': 'Alts',
+    'Spieler (Post)': 'Players (mail)',
+    '{0} erfarmt': 'farmed {0}',
+    'Erfarmt {0}': 'Farmed {0}',
+    'Kontostand {0} → {1}': 'Balance {0} → {1}',
+    'Transfers: {0}': 'Transfers: {0}',
+    '{0} konnten keiner Quelle zugeordnet werden.': '{0} could not be assigned to a source.',
+    'Ältere Aufzeichnung (vor Leeroylink 0.12): Auktionshaus und Überweisungen stecken ungeteilt in „Post“.':
+        'Older recording (before Leeroylink 0.12): auction house and transfers are all in "Mail".',
+    'Gold erfarmt {0}': 'Gold farmed {0}',
+    'Gold zählt Münzen aus der Beute, Questbelohnungen und den Händlerwert der Beute aus der Zone.':
+        'Gold counts coins from loot, quest rewards and the vendor value of the loot from the zone.',
 }

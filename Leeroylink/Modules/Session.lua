@@ -21,6 +21,8 @@ local mod = LZ:NewModule("Session", {
 })
 
 local VERSION = 2
+local MONEY_V = 2          -- gold sources of Leeroylink 0.12 (AH sales, transfers, repairs …)
+local MONEY_WAIT = 1.5     -- seconds a gold change waits for the event that explains it
 local MAX_SESSIONS = 30
 local TICK = 0.5
 local YARD_M = 0.9144
@@ -32,6 +34,7 @@ local LIMIT = {
 
 local s = nil       -- current session (a table inside the saved variables)
 local rt = {}       -- runtime state that is not saved
+local pendingMoney = {} -- gold changes that wait for their source: { d, at, src, zone, claimed }
 local zoneEntry     -- defined with the zone helpers below
 local band = bit and bit.band
 
@@ -188,7 +191,7 @@ local function newSession()
 		time = { combat = 0, afk = 0, rest = 0, dead = 0, taxi = 0, instance = 0 },
 		level = { from = lvl, to = lvl, ups = {} },
 		xp = { total = 0, kills = 0, quests = 0, explore = 0, other = 0, killsN = 0, combat = 0 },
-		money = { start = m, stop = m, income = 0, spent = 0, gain = {}, spend = {} },
+		money = { v = MONEY_V, start = m, stop = m, income = 0, spent = 0, gain = {}, spend = {} },
 		quests = { accepted = {}, done = {}, abandoned = {} },
 		loot = { n = 0, value = 0, q = {}, items = {}, notable = {} },
 		combat = {
@@ -287,13 +290,65 @@ on("PLAYER_REGEN_ENABLED", function()
 end)
 
 ----------------------------------------------------------------------
--- Gold: every change is booked to the window that was open at that moment
+-- Gold: every change waits a moment, because the event that explains it can come
+-- right after it (quest turn-in, share of the group loot). Then it is booked to that
+-- source or to the window that was open when the gold changed.
+--
+-- Sources (money.v = 2): loot, quest, vendor, auction (AH sales), refund (outbid or
+-- cancelled auctions), repair, trainer, taxi, postage, cod, other - and the transfers
+-- twink (own characters), mail (other players) and trade, which are no income.
 ----------------------------------------------------------------------
-local function moneySource()
+
+-- Is this a character of this account (other than the one playing)? Mail senders come
+-- as "Name" (same realm) or "Name-Realm".
+local function ownChar(name)
+	if type(name) ~= "string" or name == "" or isSecret(name) then return false end
+	local n, r = name:match("^([^%-]+)%-?(.*)$")
+	if not n then return false end
+	for key in pairs((LZ.db and LZ.db.chars) or {}) do
+		if key ~= LZ.charKey then
+			local kn, kr = key:match("^([^%-]+)%-?(.*)$")
+			if kn == n and (r == "" or r == kr) then return true end
+		end
+	end
+	return false
+end
+
+local mailQueue = {}   -- gold taken from or sent by mail, waiting for its change: { kind, money, sent, at }
+
+local function queueMail(e)
+	e.at = now()
+	mailQueue[#mailQueue + 1] = e
+	while #mailQueue > 20 do table.remove(mailQueue, 1) end
+end
+
+-- The mail that explains a change of d: the same amount first, else the oldest one in the same direction.
+local function takeMail(d)
+	local t, best = now(), nil
+	for i = #mailQueue, 1, -1 do
+		if t - mailQueue[i].at > 10 then table.remove(mailQueue, i) end
+	end
+	for i, e in ipairs(mailQueue) do
+		if (d > 0) == (e.money > 0) then
+			if e.money == d then best = i; break end
+			best = best or i
+		end
+	end
+	if best then return table.remove(mailQueue, best) end
+end
+
+local function moneySource(d)
 	if rt.lootOpen or within("lootClosed", 1.5) or within("moneyMsg", 1) then return "loot" end
-	if within("questAt", 2) then return "quest" end
-	if rt.merchant then return "vendor" end
-	if rt.mail then return "mail" end
+	if within("questAt", 2) or within("questClosed", 2) or (rt.questFrame and within("questFrame", 300)) then return "quest" end
+	if rt.merchant then
+		if d < 0 and ((_G.InRepairMode and InRepairMode() == true) or within("repairAt", 3)) then return "repair" end
+		return "vendor"
+	end
+	if rt.mail then
+		local e = takeMail(d)
+		if e then return e.kind, e end
+		return d > 0 and "mail" or "postage"
+	end
 	if rt.auction then return "auction" end
 	if rt.trainer then return "trainer" end
 	if rt.taxiMap or within("taxiClosed", 3) then return "taxi" end
@@ -301,27 +356,134 @@ local function moneySource()
 	return "other"
 end
 
-on("PLAYER_MONEY", function()
-	local m = money()
-	local d = m - (rt.money or m)
-	rt.money = m
-	if d == 0 then return end
-	local src = moneySource()
+local function bookMoney(e)
+	local d, src = e.d, e.src
 	if d > 0 then
 		s.money.income = s.money.income + d
 		add(s.money.gain, src, d)
-		if src == "loot" or src == "quest" or src == "vendor" then -- what the zone itself brought (farm ranking)
-			local z = zoneEntry(zoneName())
+		if src == "loot" or src == "quest" then -- what the zone itself brought (farm ranking); sales are not the zone's
+			local z = zoneEntry(e.zone)
 			z.money = (z.money or 0) + d
 		end
-	else
+	elseif d < 0 then
 		s.money.spent = s.money.spent - d
 		add(s.money.spend, src, -d)
 	end
+end
+
+-- Books what has waited long enough (or everything, before saving).
+local function flushMoney(all)
+	if not s then wipe(pendingMoney); return end
+	local t = now()
+	while pendingMoney[1] and (all or t - pendingMoney[1].at >= MONEY_WAIT) do
+		bookMoney(table.remove(pendingMoney, 1))
+	end
+end
+I.flushMoney = flushMoney
+
+-- A later event explains a waiting gain: the newest one with this amount (or any amount).
+local function claimMoney(src, amount)
+	for i = #pendingMoney, 1, -1 do
+		local e = pendingMoney[i]
+		if e.d > 0 and not e.claimed and (amount == nil or e.d == amount) then
+			e.src, e.claimed = src, true
+			return true
+		end
+	end
+	return false
+end
+
+-- Leeroylink 0.11 took a balance of 0 at the login as the start when the game had not told it
+-- the real one yet: the first jump from 0 right after the login is not booked.
+local function moneyArrived(m)
+	rt.moneyUnsure = nil
+	if s.money.income == 0 and s.money.spent == 0 and s.money.start == 0 then s.money.start = m end
+end
+
+on("PLAYER_MONEY", function()
+	local m = money()
+	if isSecret(m) then return end
+	local d = m - (rt.money or m)
+	rt.money = m
+	if d == 0 then return end
+	if rt.moneyUnsure and d > 0 and (time() - (rt.loginAt or 0)) <= 10 then
+		moneyArrived(m)
+		return
+	end
+	rt.moneyUnsure = nil
+	local src, mail = moneySource(d)
+	local e = { d = d, at = now(), src = src, zone = zoneName(), claimed = mail ~= nil }
+	if mail and mail.sent and d < 0 and -d > mail.sent then -- gold sent by mail: the rest of the change is postage
+		pendingMoney[#pendingMoney + 1] = { d = d + mail.sent, at = e.at, src = "postage", zone = e.zone, claimed = true }
+		e.d = -mail.sent
+	end
+	pendingMoney[#pendingMoney + 1] = e
 	if rt.run then rt.run.money = (rt.run.money or 0) + d end
 end)
 
-on("CHAT_MSG_MONEY", function() rt.moneyMsg = now() end)
+on("PLAYER_ENTERING_WORLD", function()
+	if not rt.moneyUnsure then return end
+	local m = money()
+	if not isSecret(m) and m > 0 then
+		rt.money = m
+		moneyArrived(m)
+	end
+end)
+
+-- "You loot ..." / "Your share of the loot is ...": also when it comes after the gold
+on("CHAT_MSG_MONEY", function()
+	rt.moneyMsg = now()
+	claimMoney("loot")
+end)
+
+-- What kind of mail is it: an AH sale, a refund from the AH, an own character or another player?
+local MAIL_SUBJECTS = { AUCTION_SOLD_MAIL_SUBJECT = "auction", AUCTION_OUTBID_MAIL_SUBJECT = "refund",
+	AUCTION_REMOVED_MAIL_SUBJECT = "refund", AUCTION_EXPIRED_MAIL_SUBJECT = "refund" }
+local function mailInfo(index)
+	if not _G.GetInboxHeaderInfo then return "mail", 0, 0 end
+	local h = { GetInboxHeaderInfo(index) }
+	local sender, subject, cash, cod, isGM = h[3], h[4], tonumber(h[5]) or 0, tonumber(h[6]) or 0, h[13]
+	local kind
+	local invoice = _G.GetInboxInvoiceInfo and GetInboxInvoiceInfo(index)
+	if invoice == "seller" then kind = "auction" end
+	if not kind and text(subject) then
+		for key, k in pairs(MAIL_SUBJECTS) do
+			local p = pattern(_G[key])
+			if p and subject:match(p) then kind = k; break end
+		end
+	end
+	if not kind then
+		if isGM then kind = "other" elseif ownChar(sender) then kind = "twink" else kind = "mail" end
+	end
+	return kind, cash, cod
+end
+
+local function onTakeMail(index, takesCash, takesItems)
+	if not s or not mod.enabled then return end
+	local ok, kind, cash, cod = pcall(mailInfo, index)
+	if not ok then return end
+	if takesCash and cash > 0 then queueMail({ kind = kind, money = cash }) end
+	if takesItems and cod > 0 then queueMail({ kind = "cod", money = -cod }) end
+end
+
+-- Sending: gold to an own character is a transfer, to anyone else as well (mail); the postage is a cost.
+local function onSendMail(recipient)
+	if not s or not mod.enabled then return end
+	local sent = _G.GetSendMailMoney and tonumber(GetSendMailMoney()) or 0
+	if sent <= 0 then return end
+	local price = _G.GetSendMailPrice and tonumber(GetSendMailPrice()) or 0
+	queueMail({ kind = ownChar(recipient) and "twink" or "mail", money = -(sent + price), sent = sent })
+end
+
+function I.hookMoney()
+	if not _G.hooksecurefunc then return end
+	if _G.TakeInboxMoney then hooksecurefunc("TakeInboxMoney", function(i) onTakeMail(i, true, false) end) end
+	if _G.TakeInboxItem then hooksecurefunc("TakeInboxItem", function(i) onTakeMail(i, false, true) end) end
+	if _G.AutoLootMailItem then hooksecurefunc("AutoLootMailItem", function(i) onTakeMail(i, true, true) end) end
+	if _G.SendMail then hooksecurefunc("SendMail", onSendMail) end
+	if _G.RepairAllItems then hooksecurefunc("RepairAllItems", function() rt.repairAt = now() end) end
+end
+
 on("MERCHANT_SHOW", function() rt.merchant = true end)
 on("MERCHANT_CLOSED", function() rt.merchant = false end)
 on("MAIL_SHOW", function() rt.mail = true end)
@@ -378,9 +540,14 @@ end)
 
 -- The reward window knows the title for sure.
 on("QUEST_COMPLETE", function()
+	rt.questFrame = now() -- the reward page is open: gold that comes now is the reward
 	local id = _G.GetQuestID and GetQuestID()
 	local title = _G.GetTitleText and GetTitleText()
 	if id and id > 0 and type(title) == "string" and title ~= "" then rt.qtitle[id] = title end
+end)
+
+on("QUEST_FINISHED", function()
+	if rt.questFrame then rt.questFrame = nil; rt.questClosed = now() end
 end)
 
 on("QUEST_TURNED_IN", function(questID, xp, cash)
@@ -389,6 +556,8 @@ on("QUEST_TURNED_IN", function(questID, xp, cash)
 	push(s.quests.done, e, LIMIT.done)
 	if I.mark then I.mark("qd", { id = questID, name = e.title }) end
 	rt.questAt = now()
+	rt.questFrame = nil
+	if e.money and e.money > 0 then claimMoney("quest", e.money) end -- the gold came before this event
 	if e.xp then
 		s.xp.quests = s.xp.quests + e.xp
 	else
@@ -492,6 +661,10 @@ on("CHAT_MSG_LOOT", function(msg)
 	L.n = L.n + count
 	add(L.q, q, count)
 	L.value = L.value + (e.v or 0) * count
+	if kind == "loot" and (e.v or 0) > 0 then -- what the loot of this zone is worth at a vendor (farm ranking)
+		local z = zoneEntry(zoneName())
+		z.lootValue = (z.lootValue or 0) + e.v * count
+	end
 	if q >= 2 then
 		local boss = rt.lastBoss and (now() - rt.lastBoss.at) < 120 and rt.lastBoss.name or nil
 		push(L.notable, { id = id, name = e.name, q = q, n = count, t = time(), zone = zoneName(),
@@ -840,6 +1013,7 @@ local ticker
 
 local function tick()
 	if not s then return end
+	flushMoney(false)
 	local t = now()
 	local dt = t - (rt.last or t)
 	rt.last = t
@@ -942,6 +1116,7 @@ function mod:OnInit()
 			local QL = _G.C_QuestLog
 			if QL and QL.SetAbandonQuest then hooksecurefunc(QL, "SetAbandonQuest", onSetAbandon) end
 			if QL and QL.AbandonQuest then hooksecurefunc(QL, "AbandonQuest", onAbandon) end
+			I.hookMoney()
 		end
 	end
 end
@@ -964,6 +1139,9 @@ function mod:OnEnable()
 	rt.loginAt = time()
 	rt.playedBefore = s.played or 0
 	rt.money = money()
+	if isSecret(rt.money) then rt.money = 0 end
+	rt.moneyUnsure = rt.money == 0 or nil -- the game may not have told the balance yet
+	wipe(pendingMoney)
 	rt.xp, rt.xpMax = readXP()
 	if isSecret(rt.xp) or isSecret(rt.xpMax) then rt.xp, rt.xpMax = 0, 0 end
 	rt.qtitle = rt.qtitle or {}
@@ -986,7 +1164,10 @@ function mod:Update()
 	s.level.to = playerLevel()
 	local xn, xm = readXP()
 	if not isSecret(xn) and not isSecret(xm) then s.xpNow, s.xpMax = xn, xm end
-	s.money.stop = money()
+	flushMoney(true)
+	local m = money()
+	if not isSecret(m) then s.money.stop = m end
+	s.money.drift = (s.money.stop - s.money.start) - (s.money.income - s.money.spent)
 	s.addon = LZ.version
 	local x = s.xp
 	x.other = math.max(0, x.total - math.max(x.kills, x.combat or 0) - x.quests - x.explore)
@@ -1094,9 +1275,17 @@ function mod:Report()
 		line(string.format(T("Stufe %s · %s XP", "Level %s · %s XP"), lvl, LZ.Num(s.xp.total)) .. (rate > 0 and string.format(" (%s/h)", LZ.Num(rate)) or ""))
 		line(string.format(T("aus Kills %s · Quests %s · Entdecken %s", "from kills %s · quests %s · exploring %s"),
 			LZ.Num(s.xp.kills), LZ.Num(s.xp.quests), LZ.Num(s.xp.explore)))
-		local net = money() - s.money.start
-		line(string.format(T("Gold netto %s · eingenommen %s · ausgegeben %s", "Gold net %s · earned %s · spent %s"),
-			LZ.FormatMoney(net), LZ.FormatMoney(s.money.income), LZ.FormatMoney(s.money.spent)))
+		local g, sp = s.money.gain, s.money.spend
+		local farmed = (g.loot or 0) + (g.quest or 0) + (g.vendor or 0) + (g.auction or 0)
+		local tin = (g.twink or 0) + (g.mail or 0) + (g.trade or 0)
+		local tout = (sp.twink or 0) + (sp.mail or 0) + (sp.trade or 0)
+		local spent = math.max(0, s.money.spent - tout - (g.refund or 0))
+		line(string.format(T("Gold erfarmt %s · ausgegeben %s · netto %s", "Gold farmed %s · spent %s · net %s"),
+			LZ.FormatMoney(farmed), LZ.FormatMoney(spent), LZ.FormatMoney(s.money.stop - s.money.start)))
+		if tin > 0 or tout > 0 then
+			line(string.format(T("Transfers: erhalten %s · abgegeben %s", "Transfers: received %s · given %s"),
+				LZ.FormatMoney(tin), LZ.FormatMoney(tout)))
+		end
 
 		head(T("Quests und Beute", "Quests and loot"))
 		line(string.format(T("%d abgeschlossen · %d angenommen · %d abgebrochen", "%d completed · %d accepted · %d abandoned"),

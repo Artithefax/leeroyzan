@@ -11,7 +11,7 @@ from datetime import datetime
 from .constants import APP_VERSION, USER_AGENT
 from .i18n import cur_lang, tr
 from .lua import YARD_M
-from .sessions import _int, _num, session_net_money
+from .sessions import _int, _num, money_breakdown, session_farmed
 
 
 # ----- Formatieren --------------------------------------------------------- #
@@ -91,7 +91,19 @@ def fmt_clock(ts) -> str:
 QUALITY_NAMES = ["Schlecht", "Gewöhnlich", "Ungewöhnlich", "Selten", "Episch", "Legendär", "Artefakt"]
 QUALITY_COLORS = ["#9d9d9d", "#f3f0e8", "#1eff00", "#3d9bff", "#c27cff", "#ff8000", "#e6cc80"]
 MONEY_SOURCES = {"loot": "Beute", "quest": "Quests", "vendor": "Händler", "mail": "Post", "auction": "Auktionshaus",
-                 "trainer": "Lehrer", "taxi": "Flugmeister", "trade": "Handel", "other": "Sonstiges"}
+                 "trainer": "Lehrer", "taxi": "Flugmeister", "trade": "Handel", "other": "Sonstiges",
+                 "repair": "Reparatur", "postage": "Porto", "cod": "Nachnahme", "refund": "AH-Rückzahlung"}
+TRANSFER_NAMES = {"twink": "Twinks", "mail": "Spieler (Post)", "trade": "Handel"}
+
+
+def fmt_transfers(b: dict) -> str:
+    """Transfers als eine Zeile: „Twinks +50g / −20g · Handel +5g“."""
+    out = []
+    for k, (tin, tout) in sorted(b["transfers"].items(), key=lambda kv: list(TRANSFER_NAMES).index(kv[0])
+                                 if kv[0] in TRANSFER_NAMES else 99):
+        parts = ([("+" + fmt_money(tin))] if tin else []) + ([("−" + fmt_money(tout))] if tout else [])
+        out.append(f"{tr(TRANSFER_NAMES.get(k, k))} {' / '.join(parts)}")
+    return " · ".join(out)
 GATHER_KINDS = {"herb": "Kräuterkunde", "mining": "Bergbau", "skinning": "Kürschnerei", "fishing": "Angeln"}
 INSTANCE_KINDS = {"party": "Dungeon", "raid": "Schlachtzug", "pvp": "Schlachtfeld", "arena": "Arena",
                   "scenario": "Szenario"}
@@ -136,7 +148,7 @@ def session_headline(s: dict) -> str:
     parts = [s.get("name") or s["char"], fmt_dur(s["played"])]
     if s["xp"]["total"]:
         parts.append(tr("{0} XP", fmt_int(s["xp"]["total"])))
-    parts.append(fmt_money(session_net_money(s), sign=True))
+    parts.append(fmt_money(session_farmed(s), sign=True))
     if s["kills"]["n"]:
         parts.append(plural(s["kills"]["n"], "{0} Kill", "{0} Kills"))
     if s["quests"]["done"]:
@@ -150,11 +162,11 @@ def _summary_sentence(s: dict) -> str:
     progress = []
     if x["total"]:
         progress.append(tr("{0} Erfahrung gesammelt", fmt_int(x["total"])))
-    net = session_net_money(s)
-    if net > 0:
-        progress.append(tr("{0} verdient", fmt_money(net)))
-    elif net < 0:
-        progress.append(tr("{0} ausgegeben", fmt_money(-net)))
+    b = money_breakdown(s)
+    if b["farmed"] > 0:
+        progress.append(tr("{0} erfarmt", fmt_money(b["farmed"])))
+    if b["spent"] > b["farmed"]:
+        progress.append(tr("{0} ausgegeben", fmt_money(b["spent"])))
     if s["quests"]["done"]:
         n = len(s["quests"]["done"])
         progress.append(tr("1 Quest abgeschlossen") if n == 1 else tr("{0} Quests abgeschlossen", n))
@@ -278,20 +290,28 @@ def _report_xp(out: ReportParts, s: dict) -> None:
 
 
 def _report_gold(out: ReportParts, s: dict) -> None:
-    """Abschnitt „Gold“."""
+    """Abschnitt „Gold“: erfarmt, ausgegeben, Transfers, Kontostand."""
     m = s["money"]
-    net = session_net_money(s)
+    b = money_breakdown(s)
     out.head(tr("Gold"))
     if s["legacy"]:
-        out.line(tr("netto {0}", fmt_money(net, sign=True)))
-    else:
-        out.pairs([tr("{0} → {1}", fmt_money(m["start"]), fmt_money(m["stop"])), tr("netto {0}", fmt_money(net, sign=True))])
-        if m["gain"]:
-            out.line(tr("Einnahmen {0}: {1}", fmt_money(m["income"]), ", ".join(
-                f"{tr(MONEY_SOURCES.get(k, k))} {fmt_money(v)}" for k, v in _top(m["gain"], 9))), "dim")
-        if m["spend"]:
-            out.line(tr("Ausgaben {0}: {1}", fmt_money(m["spent"]), ", ".join(
-                f"{tr(MONEY_SOURCES.get(k, k))} {fmt_money(v)}" for k, v in _top(m["spend"], 9))), "dim")
+        out.line(tr("netto {0}", fmt_money(b["net"], sign=True)))
+        return
+    rate = tr(" ({0}/h)", fmt_money(b["farmed"] * 3600 / s["played"])) if b["farmed"] and s["played"] >= 1200 else ""
+    out.pairs([tr("Erfarmt {0}", fmt_money(b["farmed"])) + rate, tr("ausgegeben {0}", fmt_money(b["spent"])) if b["spent"] else ""])
+    out.pairs([tr("Kontostand {0} → {1}", fmt_money(m["start"]), fmt_money(m["stop"])), tr("netto {0}", fmt_money(b["net"], sign=True))], "dim")
+    if b["gain"]:
+        out.line(tr("Einnahmen {0}: {1}", fmt_money(b["income"]), ", ".join(
+            f"{tr(MONEY_SOURCES.get(k, k))} {fmt_money(v)}" for k, v in _top(b["gain"], 9))), "dim")
+    if b["spend"]:
+        out.line(tr("Ausgaben {0}: {1}", fmt_money(b["spent"]), ", ".join(
+            f"{tr(MONEY_SOURCES.get(k, k))} {fmt_money(v)}" for k, v in _top(b["spend"], 9))), "dim")
+    if b["transfers"]:
+        out.line(tr("Transfers: {0}", fmt_transfers(b)))
+    if b["drift"]:
+        out.line(tr("{0} konnten keiner Quelle zugeordnet werden.", fmt_money(abs(b["drift"]))), "warn")
+    if b["old"]:
+        out.line(tr("Ältere Aufzeichnung (vor Leeroylink 0.12): Auktionshaus und Überweisungen stecken ungeteilt in „Post“."), "dim")
 
 
 def _report_quests(out: ReportParts, s: dict) -> None:
@@ -542,15 +562,30 @@ def aggregate_sessions(sessions: list[dict]) -> dict:
            "elite": 0, "rare": 0, "boss": 0, "blows": 0, "deaths": 0, "dmg": 0, "heal": 0, "taken": 0, "loot": 0,
            "value": 0, "walked": 0, "mount": 0, "swim": 0, "taxi": 0, "steps": 0, "jumps": 0, "found": 0, "runs": 0,
            "levels": 0, "skillups": 0, "combat": 0, "afk": 0, "first": 0, "last": 0,
+           "farmed": 0, "tin": 0, "tout": 0, "transfers": {}, "gain": {}, "spend": {}, "drift": 0, "old": 0,
            "chars": {}, "mobs": {}, "zones": {}, "items": {}, "bosses": {}, "days": {}}
     for s in sessions:
         k, cb, mv, lo = s["kills"], s["combat"], s["move"], s["loot"]
         tot["played"] += s["played"]
         tot["xp"] += s["xp"]["total"]
-        net = session_net_money(s)
+        b = money_breakdown(s)
+        net = b["net"]
         tot["net"] += net
-        tot["income"] += s["money"]["income"]
-        tot["spent"] += s["money"]["spent"]
+        tot["farmed"] += b["farmed"]
+        tot["income"] += b["income"]
+        tot["spent"] += b["spent"]
+        tot["tin"] += b["tin"]
+        tot["tout"] += b["tout"]
+        tot["drift"] += abs(b["drift"])
+        tot["old"] += 1 if b["old"] and not s.get("legacy") else 0
+        for key, v in b["gain"].items():
+            tot["gain"][key] = tot["gain"].get(key, 0) + v
+        for key, v in b["spend"].items():
+            tot["spend"][key] = tot["spend"].get(key, 0) + v
+        for key, (a, o) in b["transfers"].items():
+            x = tot["transfers"].setdefault(key, [0, 0])
+            x[0] += a
+            x[1] += o
         tot["quests"] += len(s["quests"]["done"])
         tot["kills"] += k["n"]
         tot["elite"] += k["elite"] + k["rareelite"]
@@ -577,12 +612,13 @@ def aggregate_sessions(sessions: list[dict]) -> dict:
         tot["afk"] += s["time"]["afk"]
         tot["first"] = min(tot["first"] or s["start"], s["start"])
         tot["last"] = max(tot["last"], s["stop"])
-        c = tot["chars"].setdefault(s["char"], {"n": 0, "played": 0, "xp": 0, "net": 0, "kills": 0, "level": 0,
-                                                "class": s["class"], "name": s["name"] or s["char"]})
+        c = tot["chars"].setdefault(s["char"], {"n": 0, "played": 0, "xp": 0, "net": 0, "farmed": 0, "kills": 0,
+                                                "level": 0, "class": s["class"], "name": s["name"] or s["char"]})
         c["n"] += 1
         c["played"] += s["played"]
         c["xp"] += s["xp"]["total"]
         c["net"] += net
+        c["farmed"] += b["farmed"]
         c["kills"] += k["n"]
         c["level"] = max(c["level"], s["level"]["to"])
         for key, e in k["mobs"].items():
@@ -639,8 +675,10 @@ def overview_report(sessions: list[dict], label: str) -> list[tuple[str, str]]:
            plural(a["quests"], "{0} Quest", "{0} Quests"),
            tr("{0} Fertigkeitspunkte", fmt_int(a["skillups"])) if a["skillups"] else "",
            plural(a["found"], "{0} neues Gebiet", "{0} neue Gebiete") if a["found"] else ""])
-    pairs([tr("Gold netto {0}", fmt_money(a["net"], sign=True)) + (tr(" ({0}/h)", fmt_money(a["net"] / hours)) if hours and a["net"] > 0 else ""),
-           tr("eingenommen {0}", fmt_money(a["income"])) if a["income"] else "", tr("ausgegeben {0}", fmt_money(a["spent"])) if a["spent"] else ""])
+    pairs([tr("Gold erfarmt {0}", fmt_money(a["farmed"])) + (tr(" ({0}/h)", fmt_money(a["farmed"] / hours)) if hours and a["farmed"] > 0 else ""),
+           tr("ausgegeben {0}", fmt_money(a["spent"])) if a["spent"] else "", tr("netto {0}", fmt_money(a["net"], sign=True))])
+    if a["transfers"]:
+        line(tr("Transfers: {0}", fmt_transfers({"transfers": {k: tuple(v) for k, v in a["transfers"].items()}})), "dim")
 
     head(tr("Kampf"))
     pairs([tr("{0} besiegt", fmt_int(a["kills"])), tr("{0} Elite", fmt_int(a["elite"])) if a["elite"] else "",
@@ -670,7 +708,7 @@ def overview_report(sessions: list[dict], label: str) -> list[tuple[str, str]]:
             add(c["name"], "hl")
             line("  " + " · ".join(x for x in (cls, tr("Stufe {0}", c["level"]) if c["level"] else "",
                                                plural(c["n"], "{0} Sitzung", "{0} Sitzungen"), fmt_dur(c["played"]),
-                                               tr("{0} XP", fmt_int(c["xp"])), fmt_money(c["net"], sign=True),
+                                               tr("{0} XP", fmt_int(c["xp"])), fmt_money(c["farmed"], sign=True),
                                                tr("{0} Kills", fmt_int(c["kills"]))) if x), "dim")
     return P
 
@@ -749,8 +787,8 @@ def session_records(sessions: list[dict]) -> list[tuple[str, str, dict]]:
     best("Meiste Erfahrung", lambda s: s["xp"]["total"], lambda s: tr("{0} XP", fmt_int(s["xp"]["total"])))
     best("Beste XP pro Stunde", lambda s: s["xp"]["total"] / s["played"], lambda s: tr("{0}/h", fmt_int(
         s["xp"]["total"] * 3600 / s["played"])), long_enough)
-    best("Bestes Gold pro Stunde", lambda s: session_net_money(s) / s["played"], lambda s: tr("{0}/h", fmt_money(
-        session_net_money(s) * 3600 / s["played"])), long_enough)
+    best("Bestes Gold pro Stunde", lambda s: session_farmed(s) / s["played"], lambda s: tr("{0}/h", fmt_money(
+        session_farmed(s) * 3600 / s["played"])), lambda s: long_enough(s) and not s.get("legacy"))
     best("Meiste Kills", lambda s: s["kills"]["n"], lambda s: fmt_int(s["kills"]["n"]))
     best("Meiste Quests", lambda s: len(s["quests"]["done"]), lambda s: fmt_int(len(s["quests"]["done"])))
     best("Größter Treffer", lambda s: s["combat"]["maxHit"], lambda s: f"{fmt_int(s['combat']['maxHit'])} "
@@ -785,7 +823,9 @@ def zone_ranking(sessions: list[dict], min_sec: int = 600) -> list[dict]:
             e = zones.setdefault(name, {"zone": name, "sec": 0, "xp": 0, "money": 0, "kills": 0})
             e["sec"] += _int(z.get("sec"))
             e["xp"] += _int(z.get("xp"))
-            e["money"] += _int(z.get("money"))
+            # ab Leeroylink 0.12: Münzen und Questgold der Zone plus Händlerwert der Beute von dort
+            # (davor zählten auch Verkäufe beim Händler – die Stadt war dann das „beste Farmgebiet“)
+            e["money"] += _int(z.get("money")) + _int(z.get("lootValue"))
             e["kills"] += _int(z.get("kills"))
     out = []
     for e in zones.values():
@@ -885,7 +925,7 @@ def analysis_report(sessions: list[dict], label: str) -> list[tuple[str, str]]:
         by_kills = sorted((z for z in zr if z["kills"]), key=lambda z: z["kills_h"], reverse=True)[:6]
         if by_kills:
             line(tr("Kills pro Stunde: {0}", ", ".join(f"{z['zone']} {fmt_int(z['kills_h'])}" for z in by_kills)), "dim")
-        line(tr("Gold zählt Beute, Questbelohnungen und Händlerverkäufe in der Zone."), "dim")
+        line(tr("Gold zählt Münzen aus der Beute, Questbelohnungen und den Händlerwert der Beute aus der Zone."), "dim")
 
     head(tr("Dungeons und Schlachtzüge"))
     dh = dungeon_history(sessions)
@@ -920,7 +960,7 @@ def chart_series(sessions: list[dict]) -> dict:
     lst = sorted(sessions, key=lambda s: s["start"])[-40:]
     labels = [datetime.fromtimestamp(s["start"]).strftime("%d.%m") for s in lst]
     xp_h = [s["xp"]["total"] * 3600 / s["played"] if s["played"] >= 600 else 0 for s in lst]
-    gold = [session_net_money(s) / 10000 for s in lst]
+    gold = [session_farmed(s) / 10000 for s in lst]
     days: dict[str, int] = {}
     today = datetime.now().date()
     for i in range(29, -1, -1):
@@ -975,7 +1015,7 @@ def discord_payload(s: dict, earlier: list[dict] | None = None) -> dict:
     fields = [(tr("Spielzeit"), fmt_dur(s["played"]), True),
               (tr("Stufe"), f"{lv['from']} → {lv['to']}" if lv["to"] > lv["from"] > 0 else str(lv["to"] or "–"), True),
               (tr("Erfahrung"), fmt_int(x["total"]), True),
-              (tr("Gold"), fmt_money(session_net_money(s), sign=True), True),
+              (tr("Gold"), fmt_money(session_farmed(s), sign=True), True),
               (tr("Gegner"), fmt_int(k["n"]) + (f" ({tr('{0} Elite', k['elite'] + k['rareelite'])})" if k["elite"] + k["rareelite"] else ""), True),
               (tr("Quests"), fmt_int(len(s["quests"]["done"])), True),
               (tr("Tode"), fmt_int(s["deathN"]), True),
