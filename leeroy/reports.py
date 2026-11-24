@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
-from .constants import APP_VERSION, USER_AGENT
+from .constants import USER_AGENT
 from .i18n import cur_lang, tr
 from .lua import YARD_M
 from .sessions import _int, _num, money_breakdown, session_farmed
@@ -1009,42 +1009,9 @@ def _short_list(names, limit: int = 8) -> str:
 
 
 def discord_payload(s: dict, earlier: list[dict] | None = None) -> dict:
-    """Eine Sitzung als Discord-Nachricht (Embed). earlier = frühere Sitzungen, für neue Rekorde."""
-    k, x = s["kills"], s["xp"]
-    lv = s["level"]
-    fields = [(tr("Spielzeit"), fmt_dur(s["played"]), True),
-              (tr("Stufe"), f"{lv['from']} → {lv['to']}" if lv["to"] > lv["from"] > 0 else str(lv["to"] or "–"), True),
-              (tr("Erfahrung"), fmt_int(x["total"]), True),
-              (tr("Gold"), fmt_money(session_farmed(s), sign=True), True),
-              (tr("Gegner"), fmt_int(k["n"]) + (f" ({tr('{0} Elite', k['elite'] + k['rareelite'])})" if k["elite"] + k["rareelite"] else ""), True),
-              (tr("Quests"), fmt_int(len(s["quests"]["done"])), True),
-              (tr("Tode"), fmt_int(s["deathN"]), True),
-              (tr("Strecke"), fmt_dist(s["move"]["foot"] + s["move"]["ghost"] + s["move"]["mount"]), True)]
-    if s["bosses"]:
-        fields.append((tr("Bosse"), _short_list(b["name"] for b in s["bosses"]), True))
-    best = max(s["loot"]["notable"], key=lambda e: (e["q"], e["t"]), default=None)
-    if best and best["q"] >= 3:
-        fields.append((tr("Beste Beute"), f"[{best['name']}]", True))
-    # Meilensteine: je eine eigene Zeile über die ganze Breite
-    if s["runs"]:
-        fields.append((tr("Instanzen"), _short_list(r["name"] for r in s["runs"]), False))
-    if s["explore"]["found"]:
-        fields.append((tr("Entdeckt"), _short_list(e["name"] for e in s["explore"]["found"]), False))
-    records = new_records(s, earlier or [])
-    if records:
-        fields.append((tr("Neue Rekorde"), "\n".join(f"🏆 {tr(label)}: {value}" for label, value in records), False))
-    cls = tr(CLASS_NAMES.get(s["class"], s["class"].title())) if s["class"] else ""
-    title = f"{s['name'] or s['char']}{' · ' + cls if cls else ''} – {session_title(s)}"
-    if lv["to"] > lv["from"] > 0:
-        title = "⬆ " + title
-    return {"username": "Leeroyzan", "embeds": [{
-        "title": title[:256],
-        "description": _summary_sentence(s)[:3500],
-        "color": CLASS_COLORS.get(s["class"], DISCORD_COLOR),
-        "fields": [{"name": n, "value": (v or "–")[:1024], "inline": inline} for n, v, inline in fields][:25],
-        "footer": {"text": f"Leeroyzan {APP_VERSION} · Leeroylink"},
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(s["stop"])),
-    }]}
+    """Eine Sitzung als Discord-Nachricht mit der Vorlage „Kompakt“. earlier = frühere Sitzungen, für neue Rekorde."""
+    from .metrics import BUILTIN_TEMPLATES, session_messages      # metrics baut auf diesem Modul auf
+    return session_messages(BUILTIN_TEMPLATES["kompakt"], s, earlier or [])[0]
 
 
 def _retry_after(e: urllib.error.HTTPError) -> float:

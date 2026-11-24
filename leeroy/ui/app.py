@@ -22,6 +22,7 @@ from .updates import UpdatesPage
 from .share import SharePage
 from .sets import SetsPage
 from .sessions import SessionsPage
+from .statistics import StatisticsMixin
 from .worldmap import MapPage
 from .discordshare import DiscordSharePage
 from .linkdata import LinkDataMixin
@@ -38,7 +39,7 @@ from .install import InstallMixin
 from .selfupdate import SelfUpdateMixin
 
 
-class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, UpdatesPage, SharePage, SetsPage, SessionsPage, MapPage, DiscordSharePage, LinkDataMixin, DiagnosePage, CharactersPage, QuestsPage, AuctionPage, BuildsPage, WowheadPage, SettingsPage, CommonMixin, DownloadsMixin, InstallMixin, SelfUpdateMixin, BaseTk):
+class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, UpdatesPage, SharePage, SetsPage, SessionsPage, StatisticsMixin, MapPage, DiscordSharePage, LinkDataMixin, DiagnosePage, CharactersPage, QuestsPage, AuctionPage, BuildsPage, WowheadPage, SettingsPage, CommonMixin, DownloadsMixin, InstallMixin, SelfUpdateMixin, BaseTk):
     COLUMNS = ("status", "name", "title", "version", "interface", "source", "update")
     current_page = "addons"
     UPDATE_MODES = {"auto": "Automatisch installieren", "ask": "Nur nachfragen", "off": "Aus"}
@@ -96,6 +97,7 @@ class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, Upda
         self._cleanup_update_file()
         self.after(2500, self._housekeeping)
         self.after(10000, self._watch_sessions)
+        self.after(20000, self._watch_autopost)
         self.after(4000, self._watch_presence)
         self.after(900, self._report_self_update)
         if self.cfg.get("self_update_mode") != "off":

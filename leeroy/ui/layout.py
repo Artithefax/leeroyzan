@@ -96,7 +96,8 @@ class LayoutMixin:
         self.find_var = tk.StringVar()
         self.sess_view = self.cfg.get("sess_view", "report") if self.cfg.get("sess_view") in ("report", "charts", "analysis") else "report"
         self.discord_var = tk.StringVar(value=self.cfg.get("discord_webhook", ""))
-        self.discord_auto_var = tk.BooleanVar(value=bool(self.cfg.get("discord_auto")))
+        self.sess_tpl_var = tk.StringVar()
+        self.sessions_prev: list[dict] | None = None
         self.discord_share_var = tk.StringVar(value=self.cfg.get("discord_share_webhook", ""))
         self.discord_share_name_var = tk.StringVar(value=self.cfg.get("discord_share_name", ""))
         self.presence_var = tk.BooleanVar(value=bool(self.cfg.get("discord_presence")))

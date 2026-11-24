@@ -34,14 +34,13 @@ from ..linkaddon import (
     old_link_dir,
 )
 from ..presence import latest_char, presence_activity
+from ..metrics import BUILTIN_TEMPLATES, NAMED_PERIODS, day_start_minutes, named_period, period_messages, session_messages
 from ..reports import (
     CLASS_NAMES,
     DISCORD_WEBHOOK_RE,
     analysis_report,
     chart_series,
-    discord_payload,
     discord_send,
-    discord_send_sessions,
     fmt_clock,
     fmt_day,
     fmt_dur,
@@ -61,8 +60,7 @@ class SessionsPage:
     """Teil des Hauptfensters (wird in App eingemischt)."""
 
     # --- Sitzungen -------------------------------------------------------------- #
-    SESSION_PERIODS = [("all", "Alle Zeiträume"), ("today", "Heute"), ("week", "Letzte 7 Tage"),
-                       ("month", "Letzte 30 Tage")]
+    SESSION_PERIODS = NAMED_PERIODS        # Heute/Gestern ab der Spieltag-Grenze (04:00), Wochen Mo–So
 
     def _page_sessions(self):
         t = THEME
@@ -78,6 +76,7 @@ class SessionsPage:
         self.sess_char_cb = ttk.Combobox(right, textvariable=self.sess_char_var, state="readonly", width=22)
         self.sess_char_cb.pack(side="right", padx=(0, 8))
         self.sess_char_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_sessions_page())
+        self._sess_head_right = right
 
         link = self._card_box(page, pady=(12, 0))
         row = ttk.Frame(link, style="Panel.TFrame")
@@ -116,6 +115,7 @@ class SessionsPage:
             b.pack(side="left", padx=(0, 4))
             self.sess_view_btns[key] = b
         ttk.Button(seg, text="Discord ↗", command=self.send_session_discord).pack(side="right")
+        self._sess_template_widgets(self._sess_head_right, seg)
         tf, txt = self._text(box)
         tf.pack(fill="both", expand=True)
         self._tag_text(txt)
@@ -156,10 +156,14 @@ class SessionsPage:
         if self.sess_char_var.get() not in self.sess_char_cb["values"]:
             self.sess_char_var.set(all_label)
         want = next((c for c in chars if labels[c] == self.sess_char_var.get()), "")
-        now = datetime.now()
-        cutoff = {"today": now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp(),
-                  "week": now.timestamp() - 7 * 86400, "month": now.timestamp() - 30 * 86400}.get(self.sess_period, 0)
-        shown = [s for s in self.sessions_all if (not want or s["char"] == want) and s["start"] >= cutoff]
+        span = named_period(self.sess_period, time.time(), day_start_minutes(self.cfg.get("day_start")))
+        mine = [s for s in self.sessions_all if not want or s["char"] == want]
+        if span:
+            b, e, pb, pe = span
+            shown = [s for s in mine if b <= s["start"] < e]
+            self.sessions_prev = [s for s in mine if pb <= s["start"] < pe]      # für „Vergleich mit davor“
+        else:
+            shown, self.sessions_prev = mine, None
         self.sessions_shown = shown
 
         tree = self.sess_tree
@@ -219,6 +223,8 @@ class SessionsPage:
                 parts = overview_report(self.sessions_shown, f"{who}, {period}")
             elif self.sess_view == "analysis":
                 parts = analysis_report(self.sessions_shown, f"{who}, {period}")
+            elif self.sess_template() is not None:
+                parts = self.template_parts(self.sess_template(), s, f"{who}, {period}")
             elif s is None:
                 parts = overview_report(self.sessions_shown, f"{who}, {period}")
             else:
@@ -352,39 +358,7 @@ class SessionsPage:
         self.notify(text, "ok", [(tr("Zusammenfassung ansehen"), lambda sid=last["id"]: self.show_session(sid))],
                     timeout=180000)
         self.set_status(text)
-        if self.cfg.get("discord_auto") and self.cfg.get("discord_webhook"):
-            self._discord_auto_send(pending)
-
-    DISCORD_AUTO_MAX = 5           # höchstens so viele Sitzungen auf einmal automatisch senden (die neuesten)
-    DISCORD_SENT_KEEP = 300        # so viele gesendete Sitzungen merken – damit keine doppelt im Kanal landet
-
-    def _discord_auto_send(self, pending: list[dict]):
-        """Alle neu gespeicherten Sitzungen senden, älteste zuerst – jede nur einmal."""
-        url = (self.cfg.get("discord_webhook") or "").strip()
-        sent = list(self.cfg.get("discord_sent") or [])
-        todo = [s for s in pending if not s.get("legacy") and s["id"] not in sent][-self.DISCORD_AUTO_MAX:]
-        if not url or not todo:
-            return
-        flavor = self.flavor
-
-        def work():
-            return discord_send_sessions(url, todo, load_sessions(flavor))
-
-        def done(res, err):
-            done_ids, err = res if res else ([], err)
-            if done_ids:
-                self.cfg["discord_sent"] = (list(self.cfg.get("discord_sent") or []) + done_ids)[-self.DISCORD_SENT_KEEP:]
-                save_config(self.cfg)
-                log.info("Sitzungen an Discord gesendet: %s", ", ".join(done_ids))
-            if err:
-                log.warning("Discord: %s", err)
-                self.set_status(tr("Discord: {0}", err))
-            elif len(done_ids) == 1:
-                self.set_status(tr("Sitzung an Discord gesendet."))
-            else:
-                self.set_status(tr("{0} Sitzungen an Discord gesendet.", len(done_ids)))
-
-        self.run_quiet(work, done)
+        self.autopost_sessions(pending)
 
     # Addon installieren ------------------------------------------------------------ #
     def update_link_state(self) -> bool:
@@ -665,11 +639,14 @@ class SessionsPage:
                        fill=t["text_faint"], font=self.fonts["small"])
 
     def send_session_discord(self, s: dict | None = None, quiet: bool = False):
+        """Sendet, was die Seite zeigt: die gewählte Sitzung oder (Zeile „Gesamt“) alle gezeigten Sitzungen –
+        mit der gewählten Vorlage, sonst „Kompakt“."""
         url = (self.cfg.get("discord_webhook") or "").strip()
         s = s or self._sess_selected()
-        if s is None:
+        shown = list(self.sessions_shown)
+        if s is None and not shown:
             if not quiet:
-                self.set_status(tr("Bitte eine einzelne Sitzung auswählen."))
+                self.set_status(tr("Keine Sitzungen zum Senden."))
             return
         if not url:
             if not quiet:
@@ -677,6 +654,19 @@ class SessionsPage:
                             [(tr("Einstellungen"), lambda: self.show_page("settings"))])
             return
         flavor = self.flavor
+        tpl = self.sess_template() or dict(BUILTIN_TEMPLATES["kompakt"], builtin=True)
+        chars = dict((self.link_state or {}).get("chars", {}))
+        title = f"{self.sess_char_var.get() or tr('Alle Charaktere')}, {tr(dict(self.SESSION_PERIODS)[self.sess_period])}"
+        prev = self.sessions_prev
+
+        def work():
+            history = load_sessions(flavor) if flavor else []
+            msgs = (session_messages(tpl, s, history, chars) if s is not None
+                    else period_messages(tpl, title, shown, prev, history, chars))
+            for i, m in enumerate(msgs):
+                if i:
+                    time.sleep(1.0)
+                discord_send(url, m)
 
         def done(res, err):
             if err:
@@ -686,10 +676,10 @@ class SessionsPage:
                 else:
                     self.set_status(tr("Discord: {0}", err))
                 return
-            log.info("Sitzung an Discord gesendet: %s", s["id"])
-            self.set_status(tr("Sitzung an Discord gesendet."))
+            log.info("An Discord gesendet: %s", s["id"] if s else title)
+            self.set_status(tr("Sitzung an Discord gesendet.") if s else tr("Übersicht an Discord gesendet."))
 
-        self.run_quiet(lambda: discord_send(url, discord_payload(s, load_sessions(flavor) if flavor else [])), done)
+        self.run_quiet(work, done)
 
     def _w_discord(self, parent):
         box = ttk.Frame(parent, style="Panel.TFrame")
@@ -699,9 +689,8 @@ class SessionsPage:
         e.pack(fill="x", pady=(6, 0))
         e.bind("<FocusOut>", lambda ev: self._save_discord())
         e.bind("<Return>", lambda ev: self._save_discord())
-        ttk.Checkbutton(box, text=tr("Nach jeder Sitzung automatisch senden"), variable=self.discord_auto_var,
-                        style="Wrap.TCheckbutton", command=self._save_discord).pack(anchor="w", pady=(6, 0))
-        ttk.Button(box, text=tr("Letzte Sitzung senden (Test)"), command=self._discord_test).pack(anchor="w", pady=(6, 0))
+        ttk.Separator(box).pack(fill="x", pady=(12, 8))
+        self._w_autopost(box).pack(fill="x")
         ttk.Separator(box).pack(fill="x", pady=(12, 8))
         ttk.Checkbutton(box, text=tr("Im Discord-Profil anzeigen, dass ich spiele (solange Leeroyzan läuft)"),
                         variable=self.presence_var, style="Wrap.TCheckbutton", command=self._save_presence).pack(anchor="w")
@@ -779,13 +768,5 @@ class SessionsPage:
             self.set_status(tr("Das ist keine Discord-Webhook-Adresse."))
             return
         self.cfg["discord_webhook"] = url
-        self.cfg["discord_auto"] = bool(self.discord_auto_var.get())
         save_config(self.cfg)
-
-    def _discord_test(self):
-        self._save_discord()
-        latest = load_sessions(self.flavor)[:1] if self.flavor else []
-        if not latest:
-            self.info(tr("Noch keine Sitzung zum Senden."))
-            return
-        self.send_session_discord(latest[0])
+        self.refresh_jobs()
