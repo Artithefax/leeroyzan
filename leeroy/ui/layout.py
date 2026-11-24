@@ -18,12 +18,13 @@ class LayoutMixin:
     """Teil des Hauptfensters (wird in App eingemischt)."""
 
     # ----- Aufbau ---------------------------------------------------------- #
-    PAGES = [("addons", "Meine Addons"), ("discover", "Entdecken"), ("updates", "Updates"),
+    PAGES = [("addons", "Meine Addons"), ("discover", "Entdecken"), ("updates", "Updates"), ("share", "Teilen"),
              ("sessions", "Leeroylink"), ("map", "Karte"), ("characters", "Charaktere"), ("quests", "Quests"), ("auction", "Auktionshaus"), ("builds", "Builds"), ("wowhead", "Wowhead"), ("diagnose", "Diagnose"),
-             ("share", "Teilen"), ("sets", "Sets & Backups"), ("settings", "Einstellungen")]
-    NAV_GROUPS = [("Addons", ("addons", "discover", "updates")),
+             ("sets", "Sets & Backups"), ("settings", "Einstellungen")]
+    # „Teilen“ steht bei den Addons direkt unter „Updates“ – dort sucht man es (Addons schicken und übernehmen)
+    NAV_GROUPS = [("Addons", ("addons", "discover", "updates", "share")),
                   ("Im Spiel", ("sessions", "map", "characters", "quests", "auction", "builds", "wowhead")),
-                  ("Werkzeuge", ("diagnose", "share", "sets", "settings"))]
+                  ("Werkzeuge", ("diagnose", "sets", "settings"))]
     TREE_SHOWN = ("status", "name", "version", "source", "update")
 
     def _build_ui(self):

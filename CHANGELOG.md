@@ -35,7 +35,7 @@ In Leeroyzan the gold of a session is now **farmed** (loot, quests, vendor sales
 - The **Auction house** page shows prices from friends (⇄ and who saw it when); **Leeroylink** shows them in item tooltips when they are newer than your own.
 
 ### Changed: the Share page
-The page is a guided flow now: four tasks at the top – *Send addons*, *Take over addons*, *Send AH prices*, *Take over AH prices* – and below only the numbered steps for the chosen one, each with a sentence what happens. If no Discord channel is set up yet, the page says so and takes the webhook address right there. The preview shows the readable list your friend gets; the code is one click away.
+The page is a guided flow now: four tasks at the top – *Send addons*, *Take over addons*, *Send AH prices*, *Take over AH prices* – and below only the numbered steps for the chosen one, each with a sentence what happens. If no Discord channel is set up yet, the page says so and takes the webhook address right there. The preview shows the readable list your friend gets; the code is one click away. In the sidebar, **Share** now sits right below *Updates* (Ctrl+4).
 
 ## 2.5.1
 
