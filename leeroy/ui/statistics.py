@@ -441,7 +441,7 @@ class StatisticsMixin:
         ttk.Label(box, text=tr("Was Leeroyzan wann in Discord postet. Es postet, solange es läuft; verpasste Termine "
                                "holt es beim nächsten Start nach."), style="Panel.TLabel", foreground=t["text_faint2"],
                   wraplength=300, justify="left").pack(anchor="w", pady=(2, 6))
-        frame, tv = self._list(box, (("name", tr("Auftrag")), ("next", tr("Nächster Post"))), (150, 120),
+        frame, tv = self._list(box, (("name", tr("Auftrag")), ("next", tr("Nächster Post"))), (135, 140),
                                stretch=("name",), height=4)
         frame.pack(fill="x")
         tv.tag_configure("off", foreground=t["text_faint"])
