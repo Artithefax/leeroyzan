@@ -36,6 +36,19 @@ class SettingsPage:
         self._w_path(box).pack(fill="x")
         ttk.Label(box, style="Panel.TLabel", foreground=THEME["text_faint2"],
                   text=tr("Die Spielversion wählst du links oben.")).pack(anchor="w", pady=(6, 0))
+        ttk.Separator(box).pack(fill="x", pady=(12, 8))
+        self._w_check(box, tr("Vor „Spielen“ prüfen, ob WoW ein Update braucht – dann die Battle.net-App öffnen"),
+                      self.wow_check_var).pack(anchor="w")
+        self._w_check(box, tr("Nach dem Update WoW von selbst starten"), self.wow_autostart_var).pack(anchor="w", pady=(6, 0))
+        vrow = ttk.Frame(box, style="Panel.TFrame")
+        vrow.pack(fill="x", pady=(8, 0))
+        ttk.Label(vrow, textvariable=self.wow_version_var, style="Panel.TLabel", wraplength=420,
+                  justify="left").pack(side="left", fill="x", expand=True)
+        ttk.Button(vrow, text=tr("Jetzt prüfen"), command=lambda: self.check_wow_version(silent=False)).pack(side="right")
+        ttk.Label(box, style="Panel.TLabel", foreground=THEME["text_faint2"], wraplength=520, justify="left",
+                  text=tr("Das Update selbst lädt immer die Battle.net-App. Damit sie es ohne Klick installiert, schalte "
+                          "in ihren Einstellungen bei den Downloads die automatischen Updates ein.")).pack(anchor="w", pady=(6, 0))
+        self._show_wow_version()
         cbox = self._card_box(lf, pady=(12, 0), title="CurseForge")
         self.cf_key_widget = self._w_cf_key(cbox, panel=True)
         self.cf_key_widget.pack(fill="x")

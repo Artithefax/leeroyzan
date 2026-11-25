@@ -58,6 +58,10 @@ class NotifyMixin:
             b = ttk.Button(btns, text=label, style="Primary.TButton" if i == 0 else "TButton", command=run)
             b.pack(side="left", padx=(8, 0))
             frame._buttons.append(b)
+        # Platz für Ränder der Leiste, Symbol, Abstände, ✕ und alle Knöpfe – sonst schneidet ein langer Text den
+        # letzten Knopf ab („Nicht warte“)
+        frame._reserve = 130 + sum(b.winfo_reqwidth() + 8 for b in frame._buttons)
+        lbl.configure(wraplength=max(300, self.notice_host.winfo_width() - frame._reserve))
         if extra:
             extra(body, bg)
         frame.pack(fill="x", pady=(0, 8))
@@ -81,7 +85,7 @@ class NotifyMixin:
     def _wrap_banners(self, width: int):
         for f in self.banners.values():
             try:
-                f._wrap_label.configure(wraplength=max(300, width - 380))
+                f._wrap_label.configure(wraplength=max(300, width - getattr(f, "_reserve", 380)))
             except (tk.TclError, AttributeError):
                 pass
 

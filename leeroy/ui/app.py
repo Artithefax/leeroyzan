@@ -99,6 +99,7 @@ class App(LayoutMixin, NotifyMixin, WidgetsMixin, AddonsPage, DiscoverPage, Upda
         self.after(2500, self._housekeeping)
         self.after(10000, self._watch_sessions)
         self.after(20000, self._watch_autopost)
+        self.after(30000, self._watch_wow_version)     # WoW-Update verfügbar? (danach alle zwei Stunden)
         self.after(4000, self._watch_presence)
         self.after(900, self._report_self_update)
         if self.cfg.get("self_update_mode") != "off":

@@ -37,11 +37,12 @@ One window, no pop-ups. A sidebar with the game version, the pages and a big **P
 | **Diagnostics** | Lua errors per addon and version (with one-click rollback), load problems and missing dependencies, memory ranking, wishlist from the game. |
 | **Share** | A guided page with four tasks: send addons (Discord, code, `.lzlist`, `.lzpack`), take over addons from a friend, send your AH prices, take over AH prices from friends. |
 | **Sets & backups** | Addon sets (switch groups of addons on/off) and WTF backups with restore. |
-| **Settings** | WoW folder, CurseForge API key, download folder, language, update options, log and data folder. |
+| **Settings** | WoW folder, WoW update check before *Play*, CurseForge API key, download folder, language, update options, log and data folder. |
 
 ## Features
 
 - Detects the WoW installation and game versions (`_forever_`, `_classic_beta_`, `_retail_`, …)
+- **WoW update before Play:** *Play* checks Blizzard's version server first; if your game version needs an update, Leeroyzan opens the Battle.net app on that game's page instead of WoW, waits until the update is installed and then starts WoW (the download itself is always done by the Battle.net app)
 - Lists installed addons from their `.toc` files (title, version, interface, dependencies)
 - Checks each addon's interface version against the installed game build (`.build.info`)
 - Installs addons from ZIP files or GitHub releases, with a file picker when a release ships several variants (e.g. a `-forever` build)
@@ -140,6 +141,7 @@ ruff check .
 
 - `tests/test_sessions.py` drives Leeroylink through a small imitation of the WoW API (a scripted play session with a `/reload` in the middle, the quest companion with real quest data) and checks the import, the summaries, QuestieDB, rewards, the auction house and the self-update.
 - `tests/test_layerhop.py` runs two Leeroylink clients side by side and passes their messages, invites and group changes between them: a layer switch with and without asking, another zone, refusals, Battle.net friends – plus the realm handling without a realm name.
+- `tests/test_gameupdate.py` checks the WoW update check: reading `.build.info` and `.flavor.info`, Blizzard's version table, the fallback server, opening the Battle.net app and the *Play* flow (waiting for the update, starting WoW, *Start anyway*, *Don't wait*).
 - `tests/test_files.py` covers installing, undo, interrupted updates, parked sources, settings, encryption and signatures.
 - `tests/test_discordshare.py` checks the Discord posts (builds, guides, Wowhead, quests, characters, addon lists) against Discord's limits and clicks every *Discord ↗* button in the window; `tests/test_presence.py` talks to a stand-in for the Discord app.
 - `tests/test_statistics.py` checks the statistics building blocks, templates, play days and calendar weeks and the schedule of the Discord post jobs; `tests/test_ahshare.py` the AH price files, merging by timestamp, the auction house rows and the tooltip in Leeroylink.
