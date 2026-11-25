@@ -3,6 +3,23 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.7.0
+
+### New: WoW update before *Play*
+On patch day, *Play* no longer starts a WoW that cannot log in:
+- **Play** first asks Blizzard's version server (usually well under a second) whether a newer build of your game version is out. Leeroyzan compares it with the build in `.build.info` in your WoW folder.
+- If WoW needs an update, Leeroyzan opens the **Battle.net app on the page of your game version** instead of WoW. The app downloads the update – automatically if *automatic updates* are on in its download settings, otherwise with one click on *Update*.
+- Leeroyzan **waits until the new build is installed** and the app has finished writing, then starts WoW by itself (or only tells you, if you switch that off). *Start anyway* and *Don't wait* are on the bar at the top.
+- At start and every two hours, Leeroyzan also checks in the background and shows a bar when an update is out, with *Open Battle.net*.
+- *Settings → World of Warcraft*: switch the check and the automatic start on or off, see the installed version and *Check now*.
+- Offline, or when the server does not know your game version, *Play* starts WoW as before.
+
+Leeroyzan does not download game files itself; that is always the Battle.net app's job.
+
+### Fixed
+- *Browse…* next to the WoW folder could be cut off in a narrow settings column.
+- Bars at the top with two buttons cut off the second button when the text was long.
+
 ## 2.6.0
 
 ### Fixed: gold in the Leeroylink statistics

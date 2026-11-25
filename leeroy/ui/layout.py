@@ -44,6 +44,9 @@ class LayoutMixin:
         self.set_name_var = tk.StringVar()
         self.auto_backup_var = tk.BooleanVar(value=bool(self.cfg.get("auto_backup")))
         self.check_start_var = tk.BooleanVar(value=bool(self.cfg.get("check_on_start")))
+        self.wow_check_var = tk.BooleanVar(value=bool(self.cfg.get("wow_update_check", True)))
+        self.wow_autostart_var = tk.BooleanVar(value=bool(self.cfg.get("wow_update_autostart", True)))
+        self.wow_version_var = tk.StringVar(value="")
         self.self_update_var = tk.StringVar(value=tr(self.UPDATE_MODES.get(self.cfg.get("self_update_mode"),
                                                                             self.UPDATE_MODES["auto"])))
         self.count_var = tk.StringVar()

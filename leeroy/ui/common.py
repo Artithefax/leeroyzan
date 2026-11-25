@@ -15,6 +15,7 @@ import tkinter as tk
 
 from ..i18n import tr
 from ..config import log, save_config
+from ..gameupdate import check_update, local_build, open_battlenet as open_battlenet_app, quiet_for
 from ..wow import Addon, FLAVOR_RE, find_wow_exe, flavor_label, list_flavors, read_game_version, running_wow
 from ..curseforge import cf_download_url, default_download_dir
 from ..selfupdate import NoReleaseYet, clean_child_env
@@ -68,7 +69,8 @@ class CommonMixin:
                 return sid, s
         return None, None
 
-    def start_wow(self):
+    def start_wow(self, check: bool = True):
+        """„Spielen“: erst (kurz) prüfen, ob WoW ein Update braucht – dann WoW oder die Battle.net-App starten."""
         if not self.root_path or not self.flavor:
             self.notify(tr("Bitte zuerst den WoW-Ordner wählen."), "warn", [(tr("WoW-Ordner wählen"), self.browse_root), (tr("Einstellungen"), lambda: self.show_page("settings"))], key="noroot")
             return
@@ -84,6 +86,155 @@ class CommonMixin:
             self.info(tr("Bitte warten, bis „{0}“ fertig ist – sonst ändert Leeroyzan Addons, während WoW sie lädt.",
                          self.busy_label))
             return
+        if check and self.cfg.get("wow_update_check", True):
+            self._check_wow_then_start(exe)
+            return
+        self._launch_wow(exe)
+
+    def _check_wow_then_start(self, exe: Path):
+        """Fragt Blizzards Versionsserver (höchstens ein paar Sekunden). Geht das nicht, startet WoW wie bisher."""
+        root, flavor = self.root_path, self.flavor
+        self.set_status(tr("Prüfe, ob WoW ein Update braucht …"))
+        try:
+            self.play_btn.state(["disabled"])
+        except (AttributeError, tk.TclError):
+            pass
+
+        def done(res, err):
+            try:
+                self.play_btn.state(["!disabled"])
+            except (AttributeError, tk.TclError):
+                pass
+            if err or not res or res.get("state") != "update":
+                if err or (res or {}).get("error"):
+                    log.info("WoW-Update-Prüfung übersprungen: %s", err or res.get("error"))
+                self._launch_wow(exe)
+                return
+            self.wow_needs_update(res)
+        self.run_quiet(lambda: check_update(root, flavor), done)
+
+    def wow_needs_update(self, res: dict):
+        """WoW braucht ein Update: Battle.net-App öffnen und warten, bis der neue Build da ist."""
+        log.info("WoW braucht ein Update: %s -> %s (%s)", res.get("local"), res.get("remote"), res.get("product"))
+        self.dismiss("wowupdate-avail")
+        self.open_battlenet(for_update=True)
+        auto = bool(self.cfg.get("wow_update_autostart", True))
+        gen = getattr(self, "_wow_wait_gen", 0) + 1          # nur ein Beobachter, auch wenn „Spielen“ öfter gedrückt wird
+        self._wow_wait_gen = gen
+        self._wow_update_wait = {"target": res.get("target", ""), "version": res.get("remote", ""), "start": auto,
+                                 "until": time.time() + self.WOW_UPDATE_WAIT, "root": self.root_path, "flavor": self.flavor,
+                                 "gen": gen}
+        text = tr("WoW braucht ein Update ({0} → {1}). Die Battle.net-App ist offen und lädt es.",
+                  res.get("local") or "?", res.get("remote") or "?")
+        text += " " + (tr("Leeroyzan startet WoW, sobald es fertig ist.") if auto else
+                       tr("Leeroyzan meldet sich, sobald es fertig ist."))
+        self.notify(text, "update", [(tr("Trotzdem starten"), lambda: self.start_wow(check=False)),
+                                     (tr("Nicht warten"), self.cancel_wow_update_wait)], key="wowupdate")
+        self.set_status(tr("Warte auf das WoW-Update …"))
+        self.after(self.WOW_UPDATE_POLL_MS, lambda: self._watch_wow_update(gen))
+
+    WOW_UPDATE_WAIT = 3 * 3600          # so lange wartet Leeroyzan höchstens auf das Ende des Updates
+    WOW_UPDATE_POLL_MS = 15000
+    WOW_UPDATE_QUIET = 30               # Sekunden ohne Schreiben in den Spieldateien = die App ist fertig
+
+    def cancel_wow_update_wait(self):
+        self._wow_update_wait = None
+        self.dismiss("wowupdate")
+        self.set_status(tr("Warten auf das WoW-Update beendet."))
+
+    def _watch_wow_update(self, gen: int = 0):
+        """Alle 15 s: Ist der neue Build installiert? Dann WoW starten (oder Bescheid geben)."""
+        w = getattr(self, "_wow_update_wait", None)
+        if not w or w.get("gen", 0) != gen:
+            return
+        if w["root"] != self.root_path or w["flavor"] != self.flavor or time.time() > w["until"]:
+            self._wow_update_wait = None
+            self.dismiss("wowupdate")
+            return
+        if running_wow(w["root"], w["flavor"]):          # über die Battle.net-App gestartet – nichts mehr zu tun
+            self._wow_update_wait = None
+            self.dismiss("wowupdate")
+            return
+        now = local_build(w["root"], w["flavor"])       # während die App schreibt, fehlt die Datei kurz
+        done = bool(now) and ((w["target"] and now["build"] == w["target"]) or
+                              (not w["target"] and w["version"] and now["version"] == w["version"]))
+        if not done or quiet_for(w["root"]) < self.WOW_UPDATE_QUIET:       # Build da, aber die App schreibt noch
+            self.after(self.WOW_UPDATE_POLL_MS, lambda: self._watch_wow_update(gen))
+            return
+        self._wow_update_wait = None
+        self.dismiss("wowupdate")
+        self.dismiss("wowupdate-avail")
+        self.wow_version_state = {"state": "current", "local": now["version"], "remote": now["version"]}
+        self._show_wow_version()
+        log.info("WoW-Update fertig (%s, %s)", now["version"], now["build"])
+        if w["start"]:
+            self.notify(tr("WoW ist aktualisiert – Leeroyzan startet es."), "ok", timeout=8000)
+            self.after(3000, lambda: self._autostart_wow(time.time() + 600))
+        else:
+            self.notify(tr("WoW ist aktualisiert."), "update", [(tr("Spielen"), lambda: self.start_wow(check=False))],
+                        key="wowupdate-done")
+
+    def _autostart_wow(self, until: float):
+        """Start nach dem Update – wartet, falls Leeroyzan gerade Addons aktualisiert (höchstens zehn Minuten)."""
+        if not self.root_path or not self.flavor or running_wow(self.root_path, self.flavor):
+            return
+        if self.busy and time.time() < until:
+            self.after(5000, lambda: self._autostart_wow(until))
+            return
+        self.start_wow(check=False)
+
+    def check_wow_version(self, silent: bool = True):
+        """Ohne zu starten: Ist ein WoW-Update da? (beim Start von Leeroyzan, alle paar Stunden, „Jetzt prüfen“)"""
+        if not self.root_path or not self.flavor:
+            return
+        root, flavor = self.root_path, self.flavor
+
+        def done(res, err):
+            res = res or {"state": "unknown", "error": str(err)}
+            self.wow_version_state = res
+            self._show_wow_version()
+            waiting = getattr(self, "_wow_update_wait", None)          # „Spielen“ wartet schon – kein zweiter Hinweis
+            if res.get("state") == "update" and not waiting and not running_wow(root, flavor):
+                seen = getattr(self, "_wow_update_seen", set())
+                if not silent or res.get("target") not in seen:
+                    seen.add(res.get("target"))
+                    self._wow_update_seen = seen
+                    self.notify(tr("WoW-Update verfügbar ({0} → {1}). Die Battle.net-App lädt es, sobald sie läuft.",
+                                   res.get("local") or "?", res.get("remote") or "?"), "update",
+                                [(tr("Battle.net öffnen"), lambda: self.open_battlenet(for_update=True))],
+                                key="wowupdate-avail")
+            elif res.get("state") == "current":
+                self.dismiss("wowupdate-avail")
+            if not silent and res.get("state") != "update":
+                self.set_status(tr("WoW ist aktuell ({0}).", res.get("local")) if res.get("state") == "current" else
+                                tr("Ob WoW ein Update braucht, ließ sich gerade nicht prüfen."))
+        self.run_quiet(lambda: check_update(root, flavor), done)
+
+    def _show_wow_version(self):
+        var = getattr(self, "wow_version_var", None)
+        res = getattr(self, "wow_version_state", None)
+        if var is None:
+            return
+        if not res:
+            var.set(tr("Noch nicht geprüft."))
+        elif res.get("state") == "current":
+            var.set(tr("Installiert: {0} – aktuell.", res.get("local") or "?"))
+        elif res.get("state") == "update":
+            var.set(tr("Installiert: {0} – Update auf {1} verfügbar.", res.get("local") or "?", res.get("remote") or "?"))
+        else:
+            var.set(tr("Ließ sich nicht prüfen (offline oder Spielversion unbekannt)."))
+
+    def _watch_wow_version(self):
+        """Alle paar Stunden, solange Leeroyzan läuft."""
+        try:
+            if self.cfg.get("wow_update_check", True):
+                self.check_wow_version(silent=True)
+        finally:
+            self.after(self.WOW_VERSION_POLL_MS, self._watch_wow_version)
+
+    WOW_VERSION_POLL_MS = 2 * 3600 * 1000
+
+    def _launch_wow(self, exe: Path):
         self.auto_update_link(quiet=True)          # WoW soll gleich das aktuelle Leeroylink laden
         try:
             flags = 0x00000008 | 0x00000200 if sys.platform.startswith("win") else 0  # losgelöst
@@ -121,9 +272,14 @@ class CommonMixin:
                        "Battle.net-App gerade das Spiel und hält seine Dateien gesperrt („container locked“). Warte, "
                        "bis sie fertig ist, oder starte WoW einmal über die Battle.net-App."), "warn", acts, key="gamestart")
 
-    def open_battlenet(self):
+    def open_battlenet(self, for_update: bool = False):
+        """Öffnet die Battle.net-App – wenn möglich gleich auf der Seite der gewählten Spielversion."""
         try:
-            os.startfile("battlenet://")          # öffnet die Battle.net-App, wenn sie installiert ist
+            if self.root_path and self.flavor:
+                how = open_battlenet_app(self.root_path, self.flavor)
+                log.info("Battle.net-App geöffnet (%s)%s", how, " für ein WoW-Update" if for_update else "")
+            else:
+                os.startfile("battlenet://")          # öffnet die Battle.net-App, wenn sie installiert ist
         except (AttributeError, OSError) as e:
             self.warn(tr("Die Battle.net-App ließ sich nicht öffnen: {0}", e))
 
@@ -143,6 +299,9 @@ class CommonMixin:
     def save_options(self):
         self.cfg["auto_backup"] = bool(self.auto_backup_var.get())
         self.cfg["check_on_start"] = bool(self.check_start_var.get())
+        if getattr(self, "wow_check_var", None) is not None:
+            self.cfg["wow_update_check"] = bool(self.wow_check_var.get())
+            self.cfg["wow_update_autostart"] = bool(self.wow_autostart_var.get())
         label = self.self_update_var.get()
         mode = next((k for k, v in self.UPDATE_MODES.items() if tr(v) == label), "auto")
         changed = mode != self.cfg.get("self_update_mode")

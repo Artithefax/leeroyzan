@@ -19,12 +19,13 @@ class WidgetsMixin:
     def _w_path(self, parent, frame_style="Panel.TFrame", label_style="Panel.TLabel", with_version=False):
         row = ttk.Frame(parent, style=frame_style)
         ttk.Label(row, text=tr("WoW-Ordner"), style=label_style).pack(side="left", padx=(0, 8))
-        entry = ttk.Entry(row, textvariable=self.root_var, width=50)
+        # Knopf vor dem Feld packen: Wird es eng, schrumpft das Feld – nicht der Knopf („Dur…“)
+        ttk.Button(row, text=tr("Durchsuchen…"), command=self.browse_root).pack(side="right", padx=(8, 0))
+        entry = ttk.Entry(row, textvariable=self.root_var, width=24)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda e: self._load_flavors())
         entry.bind("<FocusOut>", lambda e: self._load_flavors()
                    if self.root_path != self.cfg.get("wow_root") else None)
-        ttk.Button(row, text=tr("Durchsuchen…"), command=self.browse_root).pack(side="left", padx=(8, 0))
         return row
 
     def _w_flavor(self, parent, width=24):
