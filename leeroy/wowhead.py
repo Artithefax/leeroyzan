@@ -206,8 +206,9 @@ def tooltip_lines(markup: str) -> list[dict | None]:
     """Wowhead-Tooltip (HTML) → [{"left": [(Text, Farbe)], "right": [(Text, Farbe)]}, None = Leerzeile, …].
     Farbe: "q0"…"q7" (Qualität), "q" (gelb), "q10" (rot), "c1"…"c11" (Klasse), "gold"/"silver"/"copper", "" (weiß)."""
     p = _TipParser()
+    markup = re.sub(r"<[^>]*\Z", "", markup or "")      # abgeschnittenes Tag am Ende (neuere Pythons machen Text daraus)
     try:
-        p.feed(markup or "")
+        p.feed(markup)
         p.close()
     except (ValueError, AssertionError):             # kaputtes HTML: was bis dahin gelesen ist, reicht
         pass
