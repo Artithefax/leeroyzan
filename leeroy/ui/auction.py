@@ -11,7 +11,8 @@ import tkinter as tk
 from ..i18n import cur_lang, tr
 from ..config import log, save_config
 from ..reports import QUALITY_COLORS, fmt_int, fmt_money, plural
-from ..wowhead import wowhead_url
+from ..wowhead import wowhead_tooltip, wowhead_url
+from ..mapdata import MAP_EDITIONS
 from ..questdb import QuestDBError, _REWARD_TRIED, ensure_reward_data, load_questdb, load_reward_data, rewards_due
 from ..ahshare import load_shared, ts_day
 from ..auction import (
@@ -24,6 +25,7 @@ from ..auction import (
 )
 from .theme import THEME
 from .dialogs import Placeholder
+from .itemtip import ItemTip
 
 
 class AuctionPage:
@@ -99,6 +101,7 @@ class AuctionPage:
             self.ah_tree.tag_configure(f"q{i}", foreground=color)
         self.ah_tree.bind("<<TreeviewSelect>>", lambda e: self._ah_selected())
         self.ah_tree.bind("<Double-1>", lambda e: self.ah_wowhead())
+        self._ah_tip_bind(self.ah_tree)
         box = self._card_box(body, pady=(0, 0), side="left", fill="both", expand=True, padx=(14, 0), title=tr("Details"))
         tf, self.ah_text = self._text(box, height=7)
         tf.pack(fill="both", expand=True)
@@ -350,10 +353,96 @@ class AuctionPage:
         return {"kind": "item", "kind_name": "Gegenstand", "id": r["id"], "name": r["name"], "quality": r["q"],
                 "edition": ed, "url": wowhead_url(ed, "item", r["id"])}
 
+    def _ah_edition(self) -> str:
+        """Die Wowhead-Ausgabe zur Spielversion der Preise (Forever-Gegenstände gibt es nur bei Wowhead Forever)."""
+        eds = MAP_EDITIONS.get(self.flavor or "")
+        return eds[0] if eds else self.cfg.get("wowhead_edition", "classic")
+
     def ah_wowhead(self):
         r = self._ah_row()
         if r:
-            self.open_link(wowhead_url(self.cfg.get("wowhead_edition", "classic"), "item", r["id"]))
+            self.open_link(wowhead_url(self._ah_edition(), "item", r["id"]))
+
+    # --- Tooltip beim Überfahren einer Zeile ------------------------------------------ #
+    AH_TIP_DELAY = 350              # ms – kurz verweilen, damit beim Darüberfahren nicht jede Zeile lädt
+
+    def _ah_tip_bind(self, tv):
+        if getattr(self, "ah_tip_win", None):          # Seite neu aufgebaut (z. B. andere Sprache)
+            self.ah_tip_win.hide()
+        self.ah_tips: dict[tuple, dict] = {}        # (Ausgabe, Sprache, ID) → Wowhead-Tooltip ({} = nicht verfügbar)
+        self.ah_tips_loading: set[tuple] = set()
+        self.ah_tip_win = None
+        self.ah_tip_row = ""
+        self.ah_tip_job = None
+        tv.bind("<Motion>", self._ah_tip_motion, add="+")
+        for ev in ("<Leave>", "<ButtonPress>", "<MouseWheel>", "<Button-4>", "<Button-5>", "<KeyPress>", "<Unmap>"):
+            tv.bind(ev, lambda e: self._ah_tip_hide(), add="+")
+        self.bind("<FocusOut>", lambda e: self._ah_tip_hide(), add="+")     # Alt+Tab: der Tooltip bleibt nicht stehen
+
+    def _ah_tip_motion(self, event):
+        tv = self.ah_tree
+        iid = tv.identify_row(event.y) if tv.identify_region(event.x, event.y) in ("cell", "tree") else ""
+        if iid == self.ah_tip_row:
+            if iid and self.ah_tip_win and self.ah_tip_win.visible:
+                self.ah_tip_win.move(event.x_root, event.y_root)
+            return
+        self._ah_tip_hide()
+        self.ah_tip_row = iid
+        if iid:
+            self.ah_tip_job = self.after(self.AH_TIP_DELAY, lambda: self._ah_tip_show(iid))
+
+    def _ah_tip_hide(self):
+        if self.ah_tip_job:
+            self.after_cancel(self.ah_tip_job)
+            self.ah_tip_job = None
+        self.ah_tip_row = ""
+        if self.ah_tip_win:
+            self.ah_tip_win.hide()
+
+    def _ah_tip_key(self, r) -> tuple:
+        return (self._ah_edition(), cur_lang(), r["id"])
+
+    def _ah_tip_show(self, iid: str):
+        self.ah_tip_job = None
+        r = next((x for x in self.ah_shown if x["key"] == iid), None)
+        if iid != self.ah_tip_row or r is None or not self.ah_tree.winfo_viewable():
+            return
+        key = self._ah_tip_key(r)
+        tip = self.ah_tips.get(key)
+        if tip is None and key not in self.ah_tips_loading:
+            self.ah_tips_loading.add(key)
+            ed, iid_num = key[0], r["id"]
+
+            def done(res, err):
+                self.ah_tips_loading.discard(key)
+                if err:
+                    log.info("Wowhead-Tooltip Gegenstand %s: %s", iid_num, err)
+                self.ah_tips[key] = res if isinstance(res, dict) and res.get("lines") else {}
+                if self.ah_tip_row == iid:
+                    self._ah_tip_show(iid)
+            self.run_quiet(lambda: wowhead_tooltip("item", iid_num, ed), done)
+        lines = tip["lines"] if tip else self._ah_tip_local(r, loading=tip is None)
+        if self.ah_tip_win is None:
+            self.ah_tip_win = ItemTip(self, self.fonts)
+        x, y = self.winfo_pointerxy()
+        self.ah_tip_win.show(lines, x, y)
+
+    def _ah_tip_local(self, r, loading: bool) -> list:
+        """Was Leeroyzan selbst über den Gegenstand weiß – solange Wowhead lädt oder nicht erreichbar ist."""
+        lines: list = [{"left": [(r["name"], f"q{min(max(r['q'], 0), 6)}")]}]
+        if r["ilvl"]:
+            ilvl = tr("Gegenstandsstufe {0}", r["ilvl"])
+            lines.append({"left": [(ilvl[:1].upper() + ilvl[1:], "q")]})
+        if r["cls"] in ITEM_CLASSES:
+            lines.append({"left": [(tr(ITEM_CLASSES[r["cls"]]), "")]})
+        if r["req"] > 1:
+            lines.append({"left": [(tr("Benötigt Stufe {0}", r["req"]), "")]})
+        sell = r["vendor"] or r["sell"]
+        if sell:
+            lines.append({"left": [(tr("Verkaufspreis: "), ""), (fmt_money(sell), "gold")]})
+        lines += [None, {"left": [(tr("Lade Tooltip von Wowhead …") if loading else
+                                   tr("Wowhead ist gerade nicht erreichbar – mehr weiß Leeroyzan selbst nicht."), "dim")]}]
+        return lines
 
     def ah_fav(self):
         r = self._ah_row()

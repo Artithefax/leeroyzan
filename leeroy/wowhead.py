@@ -6,6 +6,7 @@ import json
 import re
 import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 
 from .constants import APP_VERSION
 from .i18n import cur_lang, tr
@@ -98,6 +99,129 @@ def tooltip_text(markup: str) -> str:
     return "\n".join(out).strip()
 
 
+_TIP_COLOR = re.compile(r"^(?:q\d*|c\d+)$")            # q0…q7 Qualität, q gelb, q10 rot, c1…c11 Klassenfarbe
+_TIP_MONEY = {"moneygold": "gold", "moneysilver": "silver", "moneycopper": "copper"}
+_TIP_BLOCKS = ("table", "tr", "div", "p", "li", "ul", "h1", "h2", "h3")
+_TIP_VOID = ("img", "hr", "input", "meta", "link", "wbr")
+
+
+class _TipParser(HTMLParser):
+    """Wowhead-Tooltip (HTML) → Zeilen wie im Spiel: links/rechts (zweispaltige Zeilen wie „Kopf … Stoff“), je
+    Abschnitt eine Farbe. Kommentare (<!--ilvl--> …) und unsichtbare Teile fallen weg."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.lines: list[dict | None] = []           # None = Leerzeile
+        self.cur = {"left": [], "right": []}
+        self.side = "left"
+        self.stack: list[tuple] = []                 # (Tag, Farbe, unsichtbar, Münze)
+        self.after_br = False
+        self.after_block = False
+
+    def _has_text(self) -> bool:
+        return any(t.strip() for side in self.cur.values() for t, _ in side)
+
+    def _flush(self):
+        if self._has_text():
+            line = {}
+            for side, segs in self.cur.items():
+                merged: list[list] = []
+                for t, c in segs:
+                    if merged and merged[-1][1] == c:
+                        merged[-1][0] += t
+                    else:
+                        merged.append([t, c])
+                if merged:
+                    merged[0][0] = merged[0][0].lstrip()
+                    merged[-1][0] = merged[-1][0].rstrip()
+                line[side] = [(t, c) for t, c in merged if t]
+            self.lines.append(line)
+        self.cur = {"left": [], "right": []}
+        self.side = "left"
+        self.after_br = False
+
+    def _block(self):
+        self._flush()
+        self.after_block = True
+
+    def _br(self):
+        if self._has_text():
+            self._flush()
+        elif (self.after_br or self.after_block) and self.lines:     # wie im Browser: <br><br> oder </div><br>
+            self.lines.append(None)
+        self.after_br, self.after_block = True, False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "br":
+            self._br()
+            return
+        if tag in _TIP_BLOCKS:
+            self._block()
+        if tag == "th":
+            self.side = "right"
+        elif tag == "td":
+            self.side = "left"
+        if tag in _TIP_VOID:
+            return
+        a = {k: (v or "") for k, v in attrs}
+        classes = a.get("class", "").split()
+        color = next((c for c in classes if _TIP_COLOR.match(c)), None)
+        if color is None and any(c.startswith("whtt-extra") for c in classes):
+            color = "q0"                             # „Gedroppt von“, „Dropchance“: gedämpft
+        money = next((_TIP_MONEY[c] for c in classes if c in _TIP_MONEY), None)
+        hidden = "display:none" in a.get("style", "").replace(" ", "").lower()
+        self.stack.append((tag, color, hidden, money))
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in _TIP_VOID and tag != "br":
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                break
+        if tag in _TIP_BLOCKS:
+            self._block()
+        elif tag == "th":
+            self.side = "left"
+
+    def handle_data(self, data):
+        if any(h for _, _, h, _ in self.stack):
+            return
+        text = re.sub(r"[ \t\r\n ]+", " ", data)
+        if not text.strip() and not self.cur[self.side]:
+            return
+        color = next((c for _, c, _, _ in reversed(self.stack) if c), "")
+        money = next((m for _, _, _, m in reversed(self.stack) if m), None)
+        if money and text.strip():
+            unit = {"gold": "g", "silver": "s", "copper": "k" if cur_lang() == "de" else "c"}[money]
+            text, color = text.strip() + unit, money
+        self.cur[self.side].append((text, color))
+        self.after_br = self.after_block = False
+
+
+def tooltip_lines(markup: str) -> list[dict | None]:
+    """Wowhead-Tooltip (HTML) → [{"left": [(Text, Farbe)], "right": [(Text, Farbe)]}, None = Leerzeile, …].
+    Farbe: "q0"…"q7" (Qualität), "q" (gelb), "q10" (rot), "c1"…"c11" (Klasse), "gold"/"silver"/"copper", "" (weiß)."""
+    p = _TipParser()
+    try:
+        p.feed(markup or "")
+        p.close()
+    except (ValueError, AssertionError):             # kaputtes HTML: was bis dahin gelesen ist, reicht
+        pass
+    p._flush()
+    out: list[dict | None] = []
+    for line in p.lines:
+        if line is None and (not out or out[-1] is None):
+            continue
+        out.append(line)
+    while out and out[-1] is None:
+        out.pop()
+    return out
+
+
 def wowhead_tooltip(kind: str, wid, edition: str) -> dict:
     """Kurzinfo zu einem Eintrag (der Tooltip, den Wowhead beim Überfahren eines Links zeigt)."""
     if kind not in WOWHEAD_TOOLTIP_TYPES:
@@ -107,8 +231,9 @@ def wowhead_tooltip(kind: str, wid, edition: str) -> dict:
     if not isinstance(data, dict):
         return {}
     q = data.get("quality")
-    return {"name": html.unescape(str(data.get("name") or "")), "text": tooltip_text(str(data.get("tooltip") or "")),
-            "icon": str(data.get("icon") or ""),
+    markup = str(data.get("tooltip") or "")
+    return {"name": html.unescape(str(data.get("name") or "")), "text": tooltip_text(markup),
+            "lines": tooltip_lines(markup), "icon": str(data.get("icon") or ""),
             "quality": q if isinstance(q, int) and 0 <= q < len(QUALITY_COLORS) else None}
 
 

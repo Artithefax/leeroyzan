@@ -1669,4 +1669,9 @@ EN: dict[str, str] = {
     'von {0}, {1}': 'from {0}, {1}',
     '{0} Preis von Freunden': '{0} price from friends',
     '{0} Preise von Freunden': '{0} prices from friends',
+    # 2.6.1: Tooltip im Auktionshaus
+    'Benötigt Stufe {0}': 'Requires Level {0}',
+    'Verkaufspreis: ': 'Sell Price: ',
+    'Lade Tooltip von Wowhead …': 'Loading tooltip from Wowhead …',
+    'Wowhead ist gerade nicht erreichbar – mehr weiß Leeroyzan selbst nicht.': "Wowhead can't be reached right now – that is all Leeroyzan knows itself.",
 }
