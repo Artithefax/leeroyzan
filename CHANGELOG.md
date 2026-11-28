@@ -3,6 +3,14 @@
 The section of a version becomes the text of its GitHub release automatically
 (`tools/release_notes.py`, used by the *Build release exe* workflow).
 
+## 2.6.1
+
+### New: item tooltips in the auction house
+Hover over an item on the **Auction house** page and its tooltip appears next to the pointer, the way the game shows it: the name in its quality colour, item level, binding, armour or damage and speed, stats, *Equip:* and *Use:* effects, set pieces and set bonuses, the required level and the sell price.
+- The tooltip comes from Wowhead – for WoW Forever from Wowhead Forever – in the language Leeroyzan runs in. Every item is loaded once and kept until you close Leeroyzan.
+- While it loads, or when Wowhead cannot be reached, the tooltip shows what Leeroyzan knows itself: name, item level, category, required level and sell price.
+- *Open on Wowhead* on the Auction house page now opens the edition that matches your game, too (Forever prices → Wowhead Forever).
+
 ## 2.6.0
 
 ### Fixed: gold in the Leeroylink statistics

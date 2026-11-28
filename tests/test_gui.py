@@ -195,6 +195,42 @@ class WindowSmokeTests(unittest.TestCase):
         app._ah_build_rows()
         app.update()
         self.assertTrue(any(r.get("shared") for r in app.ah_rows))
+        self.auction_tooltip(app)
+
+    def auction_tooltip(self, app):
+        """Tooltip beim Überfahren einer Zeile: erst was Leeroyzan weiß, dann Wowheads Tooltip (ohne Netz: Ersatz)."""
+        import time as _t
+        from unittest import mock
+        import leeroy.ui.auction as auction_ui
+        from leeroy.wowhead import tooltip_lines
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_itemtip import SET_ITEM
+        iid = app.ah_tree.get_children()[0]
+        calls = []
+
+        def fake(kind, wid, edition):
+            calls.append((kind, wid, edition))
+            if wid == 2589:
+                return {"name": "Leinenstoff", "lines": tooltip_lines(SET_ITEM)}
+            raise OSError("offline")
+        with mock.patch.object(auction_ui, "wowhead_tooltip", fake):
+            app.ah_tip_row = iid
+            app._ah_tip_show(iid)
+            self.assertTrue(app.ah_tip_win.visible)
+            deadline = _t.time() + 3
+            while _t.time() < deadline and app._ah_tip_key(app.ah_shown[0]) not in app.ah_tips:
+                app.update()
+                _t.sleep(0.02)
+            app.update()
+            self.assertEqual(calls, [("item", 2589, "forever")])
+            self.assertTrue(app.ah_tips[app._ah_tip_key(app.ah_shown[0])]["lines"])
+            self.assertTrue(app.ah_tip_win.visible)
+            app._ah_tip_show(iid)                      # aus dem Zwischenspeicher, ohne neue Anfrage
+            self.assertEqual(len(calls), 1)
+            app.ah_tree.event_generate("<Leave>")
+            app.update()
+            self.assertFalse(app.ah_tip_win.visible)
+            self.assertEqual(app._ah_tip_local(app.ah_shown[0], loading=False)[0]["left"][0][0], app.ah_shown[0]["name"])
 
     def test_layouts_and_languages(self):
         for layout in ("klassisch", "seitenleiste", "launcher"):
